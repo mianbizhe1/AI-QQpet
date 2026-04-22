@@ -50,3 +50,9 @@ qq-pet-macos/build_*_Conflict/
 # 备份文件
 *.bak
 docs/
+
+# 环境变量
+.env
+
+src/screen
+/screen

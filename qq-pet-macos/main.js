@@ -11,6 +11,14 @@ process.stdout?.on?.("error", () => {});
 process.stderr?.on?.("error", () => {});
 process.on("uncaughtException", (err) => {
   if (err.code === "EPIPE" || err.message?.includes("EPIPE")) return;
+  try {
+    _origErr("[main] uncaughtException:", err);
+  } catch (_) {}
+});
+process.on("unhandledRejection", (reason) => {
+  try {
+    _origErr("[main] unhandledRejection:", reason);
+  } catch (_) {}
 });
 
 const { app } = require("electron");

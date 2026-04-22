@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from .game_data import get_level, get_max_hunger_clean
@@ -56,6 +57,15 @@ class PetClient:
             online_time=_to_float(info_raw.get("onLineTime", 0)),
             last_login_time=_to_int(info_raw.get("lastLoginTime", 0)),
             online_data_time=_to_float(info_raw.get("onlineDataTime", 0)),
+            # AI个性系统字段
+            interaction_count=_to_int(info_raw.get("interactionCount", 0)),
+            last_interaction_time=_to_int(info_raw.get("lastInteractionTime", 0)),
+            mood_history=info_raw.get("moodHistory", []),
+            ai_warmth=_to_float(info_raw.get("aiWarmth", 0.5)),
+            ai_humor=_to_float(info_raw.get("aiHumor", 0.5)),
+            ai_boldness=_to_float(info_raw.get("aiBoldness", 0.5)),
+            ai_curiosity=_to_float(info_raw.get("aiCuriosity", 0.7)),
+            ai_familiarity=_to_float(info_raw.get("aiFamiliarity", 0.3)),
         )
 
         # 计算等级和最大值
@@ -153,6 +163,126 @@ class PetClient:
             medicine=store.get("medicine", []),
             background=store.get("background", []),
         )
+
+    def get_personality(self) -> dict:
+        """获取派生AI个性（从游戏属性计算）
+
+        如果 info 中已有 aiWarmth 等字段（已持久化），直接返回；
+        否则根据当前游戏属性派生（向后兼容旧数据）。
+        """
+        data = self._read()
+        info = data.get("pet", {}).get("info", {})
+
+        # 如果已有派生值，直接返回
+        if "aiWarmth" in info:
+            return {
+                "warmth": info.get("aiWarmth", 0.5),
+                "humor": info.get("aiHumor", 0.5),
+                "boldness": info.get("aiBoldness", 0.5),
+                "curiosity": info.get("aiCuriosity", 0.7),
+                "familiarity": info.get("aiFamiliarity", 0.3),
+            }
+
+        # 旧数据：从游戏属性派生
+        derived = self._derive_personality(info)
+        return derived
+
+    def record_interaction(self) -> dict:
+        """记录一次互动，更新 interactionCount 并重新派生个性"""
+        data = self._read()
+        pet = data.setdefault("pet", {})
+        info = pet.setdefault("info", {})
+
+        now = int(time.time() * 1000)
+        info["interactionCount"] = info.get("interactionCount", 0) + 1
+        info["lastInteractionTime"] = now
+
+        # 重新派生所有 AI 个性
+        personality = self._derive_personality(info)
+        info["aiWarmth"] = personality["warmth"]
+        info["aiHumor"] = personality["humor"]
+        info["aiBoldness"] = personality["boldness"]
+        info["aiCuriosity"] = personality["curiosity"]
+        info["aiFamiliarity"] = personality["familiarity"]
+
+        self._write(data)
+        return personality
+
+    def update_mood_history(self, new_mood: int) -> None:
+        """更新心情历史记录，并重算 aiHumor
+
+        Args:
+            new_mood: 当前心情值
+        """
+        data = self._read()
+        pet = data.setdefault("pet", {})
+        info = pet.setdefault("info", {})
+
+        now = int(time.time() * 1000)
+        history = info.get("moodHistory", [])
+        history.append([now, new_mood])
+
+        # 只保留最近 100 条记录
+        if len(history) > 100:
+            history = history[-100:]
+
+        info["moodHistory"] = history
+
+        # 重算 aiHumor = clamp(0.3 + avgMoodRecent / 2000, 0, 1)
+        if history:
+            recent_moods = [h[1] for h in history]
+            avg_mood = sum(recent_moods) / len(recent_moods)
+            ai_humor = min(1.0, max(0.0, 0.3 + avg_mood / 2000))
+            info["aiHumor"] = ai_humor
+
+        self._write(data)
+
+    def _derive_personality(self, info: dict) -> dict:
+        """从游戏属性派生 AI 个性（向后兼容）
+
+        派生规则：
+        - aiWarmth = clamp(0.3 + interactionCount * 0.002 + charm * 0.001, 0, 1)
+        - aiFamiliarity = clamp(interactionCount / 500, 0, 1)
+        - aiHumor = clamp(0.3 + avgMoodRecent / 2000, 0, 1)
+        - aiBoldness = clamp(0.2 + intel * 0.002, 0, 1)
+        - aiCuriosity = 0.7 (静态)
+        """
+        interaction_count = info.get("interactionCount", 0)
+        charm = info.get("charm", 0)
+        intel = info.get("intel", 0)
+        mood_history = info.get("moodHistory", [])
+
+        # aiWarmth
+        warmth = 0.3 + interaction_count * 0.002 + charm * 0.001
+        warmth = min(1.0, max(0.0, warmth))
+
+        # aiFamiliarity
+        familiarity = interaction_count / 500.0
+        familiarity = min(1.0, max(0.0, familiarity))
+
+        # aiHumor
+        if mood_history:
+            recent_moods = [h[1] for h in mood_history]
+            avg_mood = sum(recent_moods) / len(recent_moods)
+        else:
+            avg_mood = info.get("mood", 500)
+        humor = 0.3 + avg_mood / 2000.0
+        humor = min(1.0, max(0.0, humor))
+
+        # aiBoldness
+        boldness = 0.2 + intel * 0.002
+        boldness = min(1.0, max(0.0, boldness))
+
+        # aiCuriosity (静态)
+        curiosity = 0.7
+
+        return {
+            "warmth": warmth,
+            "humor": humor,
+            "boldness": boldness,
+            "curiosity": curiosity,
+            "familiarity": familiarity,
+        }
 
     def use_item(self, item_type: str, item_key: str) -> bool:
         """使用背包中的物品（减少数量）

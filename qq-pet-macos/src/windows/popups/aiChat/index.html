@@ -1,0 +1,33 @@
+<div id="aiChatApp" class="aiChatShell not_drag" cando>
+  <div class="chatWindow" cando>
+    <div class="chatTitle" id="move" cando>
+      <div class="titleText" cando>和 {{petName}} 聊天</div>
+      <button class="closeBtn focusPress" cando @click="closeWindow">x</button>
+    </div>
+
+    <div class="chatBody" cando ref="body">
+      <div
+        class="message"
+        v-for="item in messages"
+        :key="item.id"
+        :class="[item.role]"
+        cando
+      >
+        <div class="bubble" cando>{{item.text}}</div>
+        <div class="meta" v-if="item.meta" cando>{{item.meta}}</div>
+      </div>
+    </div>
+
+    <form class="chatInput" cando @submit.prevent="sendMessage">
+      <input
+        cando
+        v-model="draft"
+        :disabled="loading"
+        placeholder="和小企鹅说点什么..."
+      />
+      <button class="sendBtn focusPress" cando :disabled="loading || !draft.trim()">
+        {{loading ? "想..." : "发送"}}
+      </button>
+    </form>
+  </div>
+</div>

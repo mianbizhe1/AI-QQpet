@@ -396,6 +396,40 @@
   width: 50px;
   height: 50px;
 }
+.t_m_m_scene {
+  width: 240px;
+  height: 135px;
+  object-fit: contain;
+  background: rgba(255, 247, 223, 0.75);
+  border-radius: 8px;
+  border: 1px solid rgba(119, 74, 29, 0.35);
+}
+.activeTip.scenePreview {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.activeTip.scenePreview .tipMain {
+  position: static;
+  width: 300px;
+  height: 245px;
+  pointer-events: auto;
+}
+.activeTip.scenePreview .t_m_main {
+  justify-content: center;
+}
+.activeTip.scenePreview .t_m_m_foot {
+  max-width: 250px;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.4;
+}
 .t_m_foot .t_m_but {
   height: 25px;
   width: 50px;
@@ -475,6 +509,13 @@
 .activeTask .c_m_actives {
   height: calc(var(--goodSize) + 15px);
   position: relative;
+}
+.c_m_actives.tripCard {
+  background: linear-gradient(180deg, #fff7df 0%, #ffe1a2 100%);
+}
+.tripCard .c_m_a_i_img {
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 .taskMsg {

@@ -97,7 +97,7 @@
         </div>
         <div class="d_h_close focusPress" cando @click="closeActive"></div>
       </div>
-      <div class="activeTip" v-if="tipOpt" cando>
+      <div class="activeTip" v-if="tipOpt" cando :class="[tipOpt.imageUrl ? 'scenePreview' : '']">
         <div
           class="tipMain fccC"
           cando
@@ -118,6 +118,9 @@
             <!-- <div class="t_m_m_top " cando v-if="tipOpt.tipMsg">{{tipOpt.tipMsg}}</div> -->
             <div class="t_m_m_center" cando v-if="tipOpt.icon">
               <img class="t_m_m_c_icon" cando :src="tipOpt.icon" alt="" />
+            </div>
+            <div class="t_m_m_center" cando v-if="tipOpt.imageUrl">
+              <img class="t_m_m_scene" cando :src="tipOpt.imageUrl" alt="" />
             </div>
             <div class="t_m_m_foot" cando>{{tipOpt.msg || '暂无提醒~~'}}</div>
           </div>
@@ -155,7 +158,8 @@
               :class="[
               doActiveMenu.value == 'task'?
               (item.isTake == 1? 'focusPress':'')
-              :  (item.name  ? 'focusPress':'')]"
+              :  (item.name  ? 'focusPress':''),
+              doActiveMenu.value == 'trip' ? 'tripCard' : '']"
             >
               <div class="c_m_a_icon fccC f1" cando>
                 <img

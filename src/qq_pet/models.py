@@ -25,6 +25,15 @@ class PetInfo:
     online_time: float = 0
     last_login_time: int = 0
     online_data_time: float = 0
+    # AI个性系统字段（派生自游戏属性）
+    interaction_count: int = 0
+    last_interaction_time: int = 0
+    mood_history: list = field(default_factory=list)
+    ai_warmth: float = 0.5
+    ai_humor: float = 0.5
+    ai_boldness: float = 0.5
+    ai_curiosity: float = 0.7
+    ai_familiarity: float = 0.3
 
 
 @dataclass
