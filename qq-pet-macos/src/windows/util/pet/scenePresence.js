@@ -1,6 +1,7 @@
 (() => {
   const _require = eval("require");
   const https = _require("https");
+  const http = _require("http");
   const fs = _require("fs");
   const path = _require("path");
   const { app } = _require("electron");
@@ -98,9 +99,50 @@
     };
   }
 
+  async function generateLifeAlbumImage(option = {}, petInfo = {}) {
+    const apiKey = getConfiguredApiKey();
+    if (!apiKey) {
+      throw new Error("未配置 llm.api_key，无法生成生活相册图");
+    }
+
+    const granularity = option.granularity || "day";
+    const period = option.period || "";
+    const payload = await fetchAlbumPayload({ granularity, period, limit: option.limit || 50 });
+
+    if (!payload?.count) {
+      throw new Error(`当前${granularity}维度暂无可用生活记录`);
+    }
+
+    const body = {
+      model: "image-01",
+      prompt: payload.prompt,
+      aspect_ratio: "16:9",
+      response_format: "base64",
+    };
+
+    const response = await postJson(MINIMAX_IMAGE_URL, apiKey, body);
+    const imageBase64 = response?.data?.image_base64?.[0];
+    if (!imageBase64) {
+      throw new Error("图片生成失败：MiniMax 未返回图片");
+    }
+
+    const saved = saveAlbumImage(imageBase64, payload);
+    return {
+      ...saved,
+      prompt: payload.prompt,
+      granularity,
+      period: payload.period,
+      count: payload.count,
+      records: payload.records || [],
+      album_output_path: payload.album_output_path,
+      message: `我把这段${formatGranularityLabel(granularity)}生活整理成漫画相册啦～`,
+    };
+  }
+
   async function buildPrompt(option, petInfo) {
     const host = petInfo?.info?.host || "主人";
     let lifeContext = "";
+    let memoryContext = "";
 
     if (option.memoir && screenshotTools.captureScreen) {
       try {
@@ -113,13 +155,102 @@
       }
     }
 
+    if (option.memoir) {
+      memoryContext = await buildMemoryContext(option, lifeContext);
+    }
+
     return [
       "A cute QQ Pet style penguin companion, black and white body, big round eyes, orange beak and feet, blue scarf, yellow star pendant.",
       option.memoir
-        ? `Create a warm four-panel comic memoir about ${host}'s everyday life with this penguin companion.${lifeContext}`
+        ? `Create a warm four-panel comic memoir about ${host}'s everyday life with this penguin companion.${lifeContext}${memoryContext}`
         : `Create a photorealistic virtual travel photo of the penguin at ${option.scene || option.prompt}.`,
       "Keep the character recognizable, charming, friendly, full-body visible, cinematic composition, high quality, no text, no watermark.",
     ].join(" ");
+  }
+
+  async function buildMemoryContext(option, lifeContext) {
+    const localMemory = getLocalMemoryContext();
+    const backendMemory = await getBackendMemoryContext(option, lifeContext, localMemory);
+    const parts = [];
+
+    if (localMemory.recent.length) {
+      parts.push(`Recent conversations/events: ${localMemory.recent.join("; ")}.`);
+    }
+    if (localMemory.important.length) {
+      parts.push(`Important memories: ${localMemory.important.join("; ")}.`);
+    }
+    if (backendMemory.length) {
+      parts.push(`Long-term recalled memories: ${backendMemory.join("; ")}.`);
+    }
+
+    return parts.length
+      ? ` Use these memory hints as visual story inspiration, without rendering text: ${parts.join(" ")}`
+      : "";
+  }
+
+  function getLocalMemoryContext() {
+    const memory = global.aiBrainInstance?.memory;
+    if (!memory) return { recent: [], important: [] };
+
+    const recent = safeCall(() => memory.getRecentInteractions(6), [])
+      .map(formatMemoryItem)
+      .filter(Boolean)
+      .slice(0, 6);
+    const important = safeCall(() => memory.getMidTerm(5), [])
+      .map(formatMemoryItem)
+      .filter(Boolean)
+      .slice(0, 5);
+
+    return { recent, important };
+  }
+
+  async function getBackendMemoryContext(option, lifeContext, localMemory) {
+    const brain = global.aiBrainInstance;
+    if (!brain?.httpJson) return [];
+
+    try {
+      const topic = [
+        option.prompt,
+        lifeContext,
+        ...localMemory.recent.slice(0, 3),
+        ...localMemory.important.slice(0, 3),
+      ].filter(Boolean).join(" ");
+      const result = await brain.httpJson("POST", "/memory/recall", {
+        context: {
+          current_topic: topic || "生活漫画 回忆录 主人最近的话题",
+          purpose: "comic_memoir_scene_generation",
+          emotional_state: "warm",
+          tags: ["生活漫画", "回忆录", "跨场景存在"],
+        },
+        limit: 5,
+        personality: brain.memory?.personality || {},
+      });
+      return (result?.memories || [])
+        .map((item) => item?.memory?.content || item?.content || "")
+        .filter(Boolean)
+        .map(trimMemoryText)
+        .slice(0, 5);
+    } catch (error) {
+      console.warn("[scenePresence] backend memory recall failed:", error);
+      return [];
+    }
+  }
+
+  function formatMemoryItem(item) {
+    if (!item) return "";
+    return trimMemoryText(item.content || item.message || item.text || item.type || "");
+  }
+
+  function trimMemoryText(text) {
+    return String(text || "").replace(/\s+/g, " ").trim().slice(0, 90);
+  }
+
+  function safeCall(fn, fallback) {
+    try {
+      return fn() || fallback;
+    } catch (error) {
+      return fallback;
+    }
   }
 
   function postJson(url, apiKey, payload) {
@@ -180,11 +311,95 @@
     };
   }
 
+  function saveAlbumImage(imageBase64, payload) {
+    const targetPath = payload?.album_output_path;
+    if (!targetPath) {
+      return saveImage(imageBase64, `album-${payload?.granularity || "day"}`);
+    }
+
+    const dir = path.dirname(targetPath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(targetPath, Buffer.from(imageBase64, "base64"));
+    return {
+      filepath: targetPath,
+      fileUrl: pathToFileURL(targetPath).toString(),
+      dataUrl: `data:image/jpeg;base64,${imageBase64}`,
+    };
+  }
+
+  function fetchAlbumPayload(payload) {
+    return new Promise((resolve, reject) => {
+      const body = JSON.stringify(payload || {});
+      const request = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: 18080,
+          path: "/life-album/render",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+          },
+        },
+        (response) => {
+          let raw = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            raw += chunk;
+          });
+          response.on("end", () => {
+            try {
+              const parsed = raw ? JSON.parse(raw) : {};
+              if (response.statusCode < 200 || response.statusCode >= 300) {
+                reject(new Error(parsed?.error || `生活相册请求失败：HTTP ${response.statusCode}`));
+                return;
+              }
+              resolve(parsed);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        }
+      );
+
+      request.setTimeout(30000, () => {
+        request.destroy(new Error("生活相册请求超时"));
+      });
+      request.on("error", reject);
+      request.write(body);
+      request.end();
+    });
+  }
+
+  function formatGranularityLabel(granularity) {
+    const labels = {
+      capture: "单次",
+      day: "一天",
+      week: "一周",
+      month: "一个月",
+    };
+    return labels[granularity] || granularity;
+  }
+
   function getConfiguredApiKey() {
+    // 尝试加载 .env 文件
+    const envPath = path.resolve(__dirname, "../../../../../.env");
+    try {
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, "utf8");
+        envContent.split(/\r?\n/).forEach(line => {
+          const match = line.match(/^([^=]+)=(.*)$/);
+          if (match) {
+            process.env[match[1].trim()] = match[2].trim();
+          }
+        });
+      }
+    } catch (e) {}
+
     return (
-      readLlmApiKeyFromConfig() ||
       process.env.MINIMAX_API_KEY ||
       process.env.LLM_API_KEY ||
+      readLlmApiKeyFromConfig() ||
       ""
     );
   }
@@ -250,5 +465,6 @@
   module.exports = {
     getTripScenes,
     generateSceneImage,
+    generateLifeAlbumImage,
   };
 })();

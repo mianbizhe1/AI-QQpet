@@ -12,6 +12,7 @@ import tempfile
 from typing import List, Dict, Any, Optional
 from ai_llm import get_llm_client, Message
 from .vision import QwenVisionAnalyzer
+from .life_album import LifeAlbumStore
 
 # 导入记忆模块
 try:
@@ -31,6 +32,9 @@ class ToolAgent:
         self.config_path = config_path
         self.llm_client = get_llm_client(config_path)
         self.vision_analyzer = QwenVisionAnalyzer(config_path)
+        self.life_album_store = LifeAlbumStore(
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "life_album")
+        )
         self.tools = []
         self.max_turns = 3
 
@@ -136,6 +140,7 @@ class ToolAgent:
             }
         """
         context = context or {}
+        artifacts = {}
 
         # 构建消息历史
         context_info = ""
@@ -246,6 +251,7 @@ class ToolAgent:
                                 scene_text += f"\n窗口标题：{frontmost_window}"
                             if vision_summary:
                                 scene_text += f"\n视觉摘要：{vision_summary}"
+                                artifacts["vision_summary"] = vision_summary
                             else:
                                 image_payload = self._prepare_screenshot_image(filepath)
                                 if image_payload:
@@ -260,6 +266,12 @@ class ToolAgent:
                                 "type": "text",
                                 "text": scene_text
                             })
+                            artifacts["screenshot"] = {
+                                "filepath": filepath,
+                                "sizeKb": size_kb,
+                                "frontmost_app": frontmost_app,
+                                "frontmost_window": frontmost_window,
+                            }
                         except Exception as e:
                             print(f"[ToolAgent] 读取截图失败: {e}")
                             user_content_parts.append({
@@ -372,10 +384,22 @@ class ToolAgent:
                         print(f"[ToolAgent] 记忆学习失败: {e}")
                 # ==================================
 
+                album_record = self._record_life_album(
+                    user_message=user_message,
+                    final_response=final_response,
+                    context=context,
+                    tool_calls=tool_calls_made,
+                    artifacts=artifacts,
+                )
+
                 return {
                     'response': final_response,
                     'tool_calls': tool_calls_made,
-                    'success': True
+                    'success': True,
+                    'artifacts': {
+                        **artifacts,
+                        'life_album': album_record,
+                    },
                 }
 
         # 达到最大轮次
@@ -384,6 +408,40 @@ class ToolAgent:
             'tool_calls': tool_calls_made,
             'success': False
         }
+
+    def _record_life_album(
+        self,
+        *,
+        user_message: str,
+        final_response: str,
+        context: Dict[str, Any],
+        tool_calls: List[str],
+        artifacts: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        screenshot = artifacts.get("screenshot") or {}
+        filepath = screenshot.get("filepath")
+        if not filepath or not os.path.exists(filepath):
+            return None
+
+        try:
+            return self.life_album_store.record_capture(
+                screenshot_path=filepath,
+                vision_summary=artifacts.get("vision_summary"),
+                llm_response=final_response,
+                event=context.get("event", "chat"),
+                user_message=user_message,
+                frontmost_app=screenshot.get("frontmost_app", ""),
+                frontmost_window=screenshot.get("frontmost_window", ""),
+                tool_calls=tool_calls,
+                pet_name=context.get("pet_name", "小Q"),
+                metadata={
+                    "sizeKb": screenshot.get("sizeKb", 0),
+                    "user_id": context.get("user_id", "default"),
+                },
+            )
+        except Exception as error:
+            print(f"[ToolAgent] 记录生活相册失败: {error}")
+            return None
 
     def _extract_and_execute_tool(self, content: str) -> Optional[Dict]:
         """从响应中提取工具调用并执行"""

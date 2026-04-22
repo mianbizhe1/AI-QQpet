@@ -12,6 +12,7 @@ import asyncio
 import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 # 添加src目录到路径
 sys.path.insert(0, os.path.dirname(__file__))
@@ -21,6 +22,7 @@ from qq_pet.actions import feed, bath, play, heal, auto_care, diagnose, get_inve
 
 # 导入AI模块
 from ai_llm import get_dialogue_generator, get_llm_client, DialogueContext
+from ai_agent.life_album import LifeAlbumStore
 
 # 导入工具模块
 try:
@@ -45,6 +47,7 @@ PORT = 18080
 
 # LLM配置文件路径
 LLM_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_llm", "config.yaml")
+LIFE_ALBUM_STORE = LifeAlbumStore(Path(__file__).resolve().parent / "data" / "life_album")
 
 # ==================== HTTP服务器 ====================
 try:
@@ -121,6 +124,8 @@ class QQPETHandler(BaseHTTPRequestHandler):
             self.handle_memory_recommend()
         elif path == "/memory/stats":
             self.handle_memory_stats()
+        elif path == "/life-album/records":
+            self.handle_life_album_records()
         else:
             self.send_error(404, "Not Found")
     
@@ -176,6 +181,8 @@ class QQPETHandler(BaseHTTPRequestHandler):
             self.handle_memory_learn(data)
         elif path == "/memory/memories":
             self.handle_memory_memories(data)
+        elif path == "/life-album/render":
+            self.handle_life_album_render(data)
         else:
             self.send_error(404, "Not Found")
     
@@ -516,6 +523,68 @@ class QQPETHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json({"enabled": False, "error": str(e)})
 
+    def handle_life_album_records(self):
+        """获取生活相册记录"""
+        try:
+            query = parse_qs(urlparse(self.path).query)
+            granularity = query.get("granularity", ["day"])[0]
+            period = query.get("period", [""])[0] or None
+            limit = int(query.get("limit", ["50"])[0])
+            payload = LIFE_ALBUM_STORE.get_records(granularity=granularity, period=period, limit=limit)
+            self.send_json(payload)
+        except Exception as e:
+            self.send_json({"error": str(e)}, status=500)
+
+    def handle_life_album_render(self, data):
+        """提供给前端生成漫画相册的聚合数据"""
+        try:
+            granularity = data.get("granularity", "day")
+            period = data.get("period") or None
+            limit = int(data.get("limit", 50))
+            payload = LIFE_ALBUM_STORE.get_records(granularity=granularity, period=period, limit=limit)
+            prompt = self._build_life_album_prompt(payload)
+            self.send_json({
+                **payload,
+                "prompt": prompt,
+            })
+        except Exception as e:
+            self.send_json({"error": str(e)}, status=500)
+
+    def _build_life_album_prompt(self, payload):
+        granularity = payload.get("granularity", "day")
+        period = payload.get("period", "")
+        records = payload.get("records", [])
+        count = payload.get("count", 0)
+        pet_name = (records[0].get("pet_name") if records else "小Q") or "小Q"
+
+        lines = [
+            f"为QQ宠物 {pet_name} 生成一张漫画风生活回忆相册图。",
+            f"聚合维度：{granularity}。",
+            f"时间范围：{period or '最近记录'}。",
+            f"记录条数：{count}。",
+        ]
+
+        for index, record in enumerate(records[:8], start=1):
+            snippet = record.get("vision_summary") or record.get("llm_response") or record.get("user_message") or ""
+            snippet = " ".join(str(snippet).split())[:120]
+            app_name = record.get("frontmost_app", "")
+            if app_name:
+                lines.append(f"{index}. [{record.get('timestamp', '')}] {app_name} - {snippet}")
+            else:
+                lines.append(f"{index}. [{record.get('timestamp', '')}] {snippet}")
+
+        if granularity == "capture":
+            lines.append("画成单次生活抓拍的漫画纪念卡，温暖、可爱、像相册单页。")
+        elif granularity == "day":
+            lines.append("画成同一天的四格或多格漫画日记，相册页感。")
+        elif granularity == "week":
+            lines.append("画成一周生活拼贴漫画页，保留每天不同片段。")
+        else:
+            lines.append("画成整月回忆相册封面或拼贴页，突出节奏变化与陪伴感。")
+
+        lines.append("不要出现文字水印，不要在画面中直接排版长文字。")
+        return "\n".join(lines)
+
     def _build_ai_response(self, data):
         """统一构造AI响应，保证聊天与决策返回同一格式"""
         event = data.get("event", "tick")
@@ -547,6 +616,7 @@ class QQPETHandler(BaseHTTPRequestHandler):
                 message=message,
                 status_dict=status_dict,
                 personality=personality,
+                event=event,
                 screenshot_data=user_context.get("screenshotData"),
                 user_context=user_context,
             )
@@ -631,7 +701,7 @@ class QQPETHandler(BaseHTTPRequestHandler):
             "timestamp": datetime.now().isoformat(),
         }
 
-    def _run_tool_agent_chat(self, message, status_dict, personality, screenshot_data=None, user_context=None):
+    def _run_tool_agent_chat(self, message, status_dict, personality, event="chat", screenshot_data=None, user_context=None):
         """聊天事件优先尝试ToolAgent"""
         try:
             from ai_agent import ToolAgent
@@ -647,6 +717,7 @@ class QQPETHandler(BaseHTTPRequestHandler):
                 "screenshotData": screenshot_data,
                 "user_context": user_context or {},
                 "user_id": (user_context or {}).get("user_id", "default"),
+                "event": event or (user_context or {}).get("event") or "chat",
             }
             result = agent.chat(message, context)
             print(

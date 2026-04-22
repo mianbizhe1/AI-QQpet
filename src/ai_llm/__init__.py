@@ -3,6 +3,15 @@ AI LLM 模块
 为QQ宠物提供LLM对话能力
 """
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+env_path = Path(__file__).parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+
 from .llm_client import LLMClient, Message, LLMResponse, get_llm_client, reset_llm_client, load_image_as_base64, get_image_mime_type
 from .dialogue_generator import (
     DialogueGenerator,
