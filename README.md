@@ -1,211 +1,302 @@
-# QQ 宠物管家 (WorkBuddy)
+# AI QQ企鹅 — 智能社交陪伴伙伴
+你的下一个赛博宠物何必是龙虾
 
-QQ 宠物（怀旧服 v1.2.4）的逆向分析与桌面移植项目（macOS / Windows），附带 OpenClaw Skill 实现宠物自动管理。
+让经典 QQ 宠物拥抱 AI 时代。项目包含三个核心部分：
 
-<img width="480" alt="QQ宠物" src="https://github.com/user-attachments/assets/7fa61a7a-b23f-483f-b071-d297dc393417" />
+| 模块 | 技术栈 | 说明 |
+|------|--------|------|
+| **桌面宠物** | Electron + Ruffle WASM | 移植自 QQ 宠物怀旧服，兼容 macOS / Windows |
+| **AI 大脑** | JavaScript (aiBrain.js) + Python (ToolAgent) | 感知 → 记忆 → 决策 → 对话，端到端 AI 驱动 |
+| **记忆系统** | SQLite + LLM | 主人画像、长期记忆、上下文召回 |
 
-## 项目概述
+<div align="center">
+<img alt="img.png" height="600" src="img.png"/>
+</div>
+---
 
-本项目完成了三件事：
+## 核心特性
 
-1. **逆向分析** — 完整分析了 QQ 宠物的通信架构（Express + WebSocket + RSA 上报）
-2. **桌面移植** — 提取 Electron 源码，移除遥测/指纹采集，用 Ruffle WASM 替代 Flash，适配 macOS 和 Windows
-3. **自动化管理** — Python CLI 直接读写 electron-store 数据文件，实现宠物状态监控与养护
+**有记忆的陪伴**
+- 主人画像：兴趣、热点话题、娱乐偏好
+- 长期记忆：跨会话记住重要对话和事实
+- 上下文召回：对话时自动检索相关记忆
 
-<img width="320" height="334" alt="image" src="https://github.com/user-attachments/assets/457cf203-b00f-4108-a6f8-cf44d75fe315" />
+**主动的关怀**
+- 情感冷却机制：4小时一次情感关怀，不打扰
+- 时间感知：深夜自动进入安静模式
+- 场景感知：屏幕截图 + 消息语义分析
+
+**社交破冰**
+- 崽友社交：企鹅可以串门，成为好友间的聊天桥梁
+- 群聊助手：感知群氛围，主动搭话
+
+---
 
 ## 快速开始
 
-### 1. 启动宠物
+### 环境要求
 
-从 [Releases](https://github.com/xuemian168/qqpet_automation/releases) 下载对应平台的安装包：
+- Python 3.10+
+- Node.js 18+（用于 Electron 前端）
+- macOS 12+ 或 Windows 10+
 
-| 平台 | 文件 | 说明 |
-|------|------|------|
-| macOS (Apple Silicon) | `QQ宠物-x.x.x-arm64.dmg` | DMG 安装包 |
-| Windows (64位) | `QQ宠物 Setup x.x.x.exe` | NSIS 安装程序 |
-| Windows (64位) | `QQ宠物-x.x.x-portable.exe` | 免安装便携版 |
-
-#### macOS 安装
-
-双击 `.dmg` 文件，将应用拖入 Applications 文件夹。
-
-> **⚠️ "已损坏，无法打开" 解决方法**
->
-> 由于应用未经 Apple 签名，macOS Gatekeeper 会阻止运行。请在终端执行以下命令：
->
-> ```bash
-> sudo xattr -rd com.apple.quarantine /Applications/QQ宠物.app
-> ```
->
-> 然后重新打开应用即可。
-
-#### Windows 安装
-
-- **安装版**：双击 `QQ宠物 Setup x.x.x.exe`，可自定义安装目录
-- **便携版**：双击 `QQ宠物-x.x.x-portable.exe` 直接运行，无需安装
-
-> **⚠️ Windows SmartScreen 提示**
->
-> 应用未经 Microsoft 签名，首次运行时 SmartScreen 可能提示"Windows 已保护你的电脑"。
-> 点击 **"更多信息"** → **"仍要运行"** 即可。
-
-#### 从源码运行
+### 1. 启动 AI 服务（后台运行）
 
 ```bash
-cd qq-pet-macos && npm install && npx electron .
-```
-
-宠物会出现在桌面上，可拖动、右键菜单、状态栏图标。
-
-### 2. 安装管理工具
-
-```bash
+cd ~/qqpet_automation
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# 启动 API 服务器（端口 18080）
+python -m src.ai_server
 ```
 
-### 3. 查看宠物状态
+### 2. 启动桌面宠物
 
 ```bash
-.venv/bin/python -m src.qq_pet.cli status
+cd qq-pet-macos
+npm install
+npx electron .
 ```
 
-输出示例：
+宠物出现在桌面后，AI 大脑自动连接后端 API，开始智能交互。
 
-```json
-{
-  "name": "爹",
-  "host": "主",
-  "level": 1,
-  "hunger": 3034,
-  "hunger_max": 3100,
-  "clean": 3026,
-  "clean_max": 3100,
-  "health": 5,
-  "mood": 969,
-  "mood_max": 1000,
-  "is_hungry": false,
-  "is_dirty": false,
-  "is_sick": false
-}
-```
-
-## CLI 命令
+### 3. 验证服务状态
 
 ```bash
-# 状态查询
-.venv/bin/python -m src.qq_pet.cli status      # 宠物状态概览
-.venv/bin/python -m src.qq_pet.cli info         # 详细信息（等级/成长/属性）
-.venv/bin/python -m src.qq_pet.cli inventory    # 背包物品
+# 检查 AI 服务是否正常
+curl http://127.0.0.1:18080/health
 
-# 养护操作
-.venv/bin/python -m src.qq_pet.cli feed         # 喂食（+1000 饥饿值）
-.venv/bin/python -m src.qq_pet.cli bath         # 洗澡（+1000 清洁值）
-.venv/bin/python -m src.qq_pet.cli play         # 逗玩（+100 心情值）
-.venv/bin/python -m src.qq_pet.cli feed --amount 2000  # 指定数量
+# 查看宠物状态
+curl http://127.0.0.1:18080/pet/status
 
-# 医疗
-.venv/bin/python -m src.qq_pet.cli diagnose     # 疾病诊断
-.venv/bin/python -m src.qq_pet.cli heal         # 自动治病（匹配背包药物）
-
-# 一键养护
-.venv/bin/python -m src.qq_pet.cli auto         # 按优先级自动处理所有问题
-
-# 数据管理
-.venv/bin/python -m src.qq_pet.cli backup       # 备份数据文件
-.venv/bin/python -m src.qq_pet.cli raw          # 查看原始数据（调试）
+# 查看主人画像
+curl http://127.0.0.1:18080/memory/master
 ```
 
-## OpenClaw Skill
-
-将 `skills/qq-pet/` 复制到 skill 目录后，AI 助手可通过自然语言管理宠物：
-
-```bash
-cp -r skills/qq-pet ~/.openclaw/skills/
-```
-
-触发关键词：`QQ宠物`、`宠物状态`、`喂食`、`洗澡`、`治病`、`一键养护`
-
-## 移植版改动
-
-相比 Windows 原版（QQ 宠物怀旧服），桌面移植版做了以下修改：
-
-| 修改项 | 说明 |
-|--------|------|
-| 遥测移除 | 移除 RSA 数据上报、machineId 采集、sysInfo 采集 |
-| Flash 替代 | PepFlash DLL → Ruffle WASM（最新 nightly） |
-| 自动更新 | 禁用远程更新检查 |
-| 存储加密 | 改为明文 JSON（方便 CLI 读写） |
-| 截图功能 | PrintScr.exe → macOS `screencapture` |
-| 窗口适配 | 修复透明窗口白框、托盘图标 ICO→PNG |
-| 拖动修复 | 鼠标事件监听提升到 document 级别 |
-| IP 获取 | 修复 Darwin 平台网络接口枚举 |
-
-## 游戏机制（逆向所得）
-
-### 属性临界值
-
-- **饥饿 < 720**：进入饥饿状态
-- **清洁 < 1080**：进入脏污状态
-- **心情 < 100**：心情低落
-- **健康 = 5** 正常，**4→1** 逐级生病，**0** = 死亡
-
-### 疾病系统
-
-三条独立疾病链，不治疗会逐级恶化：
-
-```
-感冒(板蓝根) → 发烧(退烧药) → 重感冒(银翘丸) → 肺炎(金色消炎药水) → 死亡
-咳嗽(枇杷糖浆) → 支气管炎(甘草剂) → 哮喘(定喘丸) → 肺结核(通风散) → 死亡
-肚子胀(消食片) → 胃炎(蓝色消炎药水) → 胃溃疡(龙胆草) → 胃癌(仙人汤) → 死亡
-```
-
-### 属性衰减（每60秒）
-
-- 饥饿/清洁：-5~8（心情<600 额外-2）
-- 心情：-2~4
-
-## 数据文件位置
-
-| 平台 | 路径 |
-|------|------|
-| macOS（移植版） | `~/Library/Application Support/qq-pet-macos/config-macos.json` |
-| Windows（移植版） | `%APPDATA%/qq-pet-macos/config-macos.json` |
-| Windows（原版） | `%APPDATA%/pet/config.json`（AES 加密） |
+---
 
 ## 项目结构
 
 ```
-workbuddy/
-├── qq-pet-macos/                 # macOS 移植版 Electron 应用
-│   ├── main.js                   # 入口（已清理遥测）
-│   ├── package.json
-│   └── src/                      # 源码（从 app.asar 解包修改）
-├── skills/qq-pet/SKILL.md        # OpenClaw Skill 定义
-├── src/qq_pet/                   # Python 管理工具
-│   ├── cli.py                    # CLI 入口
-│   ├── pet_client.py             # 数据客户端
-│   ├── store_reader.py           # electron-store 读写
-│   ├── actions.py                # 养护动作
-│   ├── game_data.py              # 游戏常量（逆向）
-│   └── models.py                 # 数据模型
-├── config.yaml                   # 配置文件
-├── requirements.txt              # Python 依赖
-└── pyproject.toml
+qqpet_automation/
+├── qq-pet-macos/                    # Electron 桌面宠物
+│   └── src/windows/util/
+│       └── pet/
+│           ├── aiBrain.js          # AI 大脑核心（感知/记忆/决策/主动触达）
+│           ├── scenePresence.js    # 场景存在（群聊/私聊/动态感知）
+│           └── screenshot.js       # 屏幕截图
+│
+├── src/
+│   ├── ai_server.py                # Python HTTP API 服务器（端口 18080）
+│   │
+│   ├── ai_llm/                     # LLM 客户端
+│   │   ├── llm_client.py           # MiniMax API 封装
+│   │   ├── dialogue_generator.py   # 对话生成器
+│   │   └── prompt_templates.py     # Prompt 模板
+│   │
+│   ├── ai_agent/                   # AI Agent（Tool Calling）
+│   │   ├── tool_agent.py           # 核心 Agent（记忆召回 + 对话 + 工具调用）
+│   │   └── vision.py               # 视觉理解（Qwen VLM）
+│   │
+│   ├── ai_tools/                   # 工具集
+│   │   ├── screenshot.py           # 截图工具
+│   │   ├── browser.py              # 搜索工具
+│   │   ├── system.py               # 系统状态
+│   │   ├── weather.py              # 天气查询
+│   │   └── notify.py               # 通知推送
+│   │
+│   ├── memory/                     # 记忆系统
+│   │   ├── api.py                  # MemoryAPI（暴露给 ai_server）
+│   │   ├── database.py             # SQLite（单例模式）
+│   │   ├── models.py              # 数据模型
+│   │   ├── master_profile.py       # 主人画像管理
+│   │   ├── long_term_memory.py    # 长期记忆存储
+│   │   ├── memory_learner.py      # LLM 驱动学习（从对话提取偏好）
+│   │   └── memory_recall.py       # 上下文感知召回
+│   │
+│   ├── multi_agent/               # 多 Agent 调度
+│   │   ├── master_agent.py        # 主 Agent
+│   │   ├── sub_agent.py           # 子 Agent
+│   │   ├── task_scheduler.py      # 定时任务调度
+│   │   └── process_pool.py        # 进程池
+│   │
+│   └── qq_pet/                    # 宠物状态管理
+│       ├── pet_client.py          # 宠物数据读写
+│       ├── actions.py             # 养护动作（喂食/洗澡/治病/逗玩）
+│       └── cli.py                 # CLI 工具
+│
+├── config.yaml                     # 全局配置
+└── requirements.txt               # Python 依赖
 ```
+
+---
+
+## API 接口
+
+启动 `python -m src.ai_server` 后，监听 `http://127.0.0.1:18080`。
+
+### 宠物操作
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/pet/status` | 获取宠物状态（饥饿/清洁/心情/健康） |
+| GET | `/pet/inventory` | 获取背包物品 |
+| POST | `/pet/feed` | 喂食 |
+| POST | `/pet/bath` | 洗澡 |
+| POST | `/pet/play` | 逗玩 |
+| POST | `/pet/heal` | 治病 |
+
+### AI 对话
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/ai/chat` | 聊天（主入口，走 ToolAgent） |
+| POST | `/ai/decide` | 统一 AI 决策入口 |
+| POST | `/ai/perception` | 场景感知分析 |
+| GET | `/ai/personality` | 获取宠物性格参数 |
+| GET | `/ai/health` | LLM 连接状态 |
+
+### 记忆系统
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/memory/master` | 获取主人画像 |
+| GET | `/memory/recall` | 召回相关记忆 |
+| POST | `/memory/learn` | 从对话学习（自动调用） |
+| GET | `/memory/recommend` | 获取推荐内容 |
+| GET | `/memory/stats` | 记忆统计 |
+
+---
+
+## AI 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  aiBrain.js（Electron 端）                                   │
+│                                                             │
+│  ┌─────────────┐  ┌────────────────┐  ┌─────────────────┐ │
+│  │ AIPerception│  │  Memory（三层） │  │  DecisionEngine │ │
+│  │             │  │                │  │                 │ │
+│  │ · 屏幕感知  │  │ · shortTerm    │  │ · _chat         │ │
+│  │ · 时间感知  │  │ · midTerm      │  │ · _tick         │ │
+│  │ · 情绪推断  │  │ · longTerm     │  │ · _proactive    │ │
+│  └─────────────┘  └────────────────┘  └─────────────────┘ │
+│         │                                    │              │
+│         │  POST /ai/chat                     │              │
+│         │  POST /memory/learn                │              │
+│         └─────────────── http ───────────────┘              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ai_server.py（Python 端）                                   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐ │
+│  │  ToolAgent                                             │ │
+│  │                                                       │ │
+│  │  system_prompt ──► LLM ──► Tool Calling 循环          │ │
+│  │       │                         │                      │ │
+│  │       │  ┌─────────────────────┘                      │ │
+│  │       ▼  ▼                                             │ │
+│  │  ┌─────────────────────────────────┐                   │ │
+│  │  │ Memory Recall（召回相关记忆）    │                   │ │
+│  │  └─────────────────────────────────┘                   │ │
+│  └──────────────────────────────────────────────────────┘ │
+│                              │                              │
+│         ┌────────────────────┼────────────────────┐         │
+│         ▼                    ▼                    ▼         │
+│  ┌────────────┐      ┌────────────┐      ┌────────────┐   │
+│  │ screenshot │      │   browser  │      │   notify   │   │
+│  │   截图     │      │   搜索     │      │   通知    │   │
+│  └────────────┘      └────────────┘      └────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐ │
+│  │  Memory System（SQLite + LLM）                        │ │
+│  │                                                       │ │
+│  │  MemoryLearner ──► 从对话提取主人兴趣/偏好/话题       │ │
+│  │  MemoryRecall  ──► 上下文感知召回相关记忆             │ │
+│  │  MasterProfile  ──► 主人画像（兴趣/娱乐/热点）        │ │
+│  └──────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 主动触达机制
+
+aiBrain.js 内置主动关怀系统，基于冷却时间避免打扰：
+
+```javascript
+INITIATIVE_COOLDOWN: {
+    'emotional_care': 4 * 60 * 60 * 1000,   // 情感关怀：4小时
+    'social_bridge': 2 * 60 * 60 * 1000,     // 社交搭桥：2小时
+    'pet_need': 30 * 60 * 1000,              // 宠物需求：30分钟
+    'idle_chat': 60 * 60 * 1000,             // 闲聊：1小时
+},
+ACTIVE_HOURS: { start: 8, end: 23 },         // 活跃时段
+QUIET_HOURS: { start: 0, end: 7 },           // 深夜不打扰
+```
+
+---
 
 ## 配置
 
 编辑 `config.yaml`：
 
 ```yaml
-store_path: ""                # 留空自动检测
-encryption_key: "aes-256-cbc" # Windows 原版加密密钥
-thresholds:
-  hunger: 720
-  clean: 1080
-  mood: 100
-  health: 5
+# LLM 配置（MiniMax）
+llm:
+  api_key: "your-api-key"
+  base_url: "https://api.minimaxi.com/v1"
+  model: "MiniMax-M2.7"
+
+# 宠物数据
+store_path: ""   # 留空自动检测
+
+# AI 主动触达
+initiative:
+  enabled: true
+  emotional_care_interval: 4  # 小时
+  social_bridge_interval: 2   # 小时
 ```
+
+---
+
+## 开发
+
+### 运行测试
+
+```bash
+# LLM 连接测试
+python -m pytest tests/test_llm_connectivity.py -v
+
+# 宠物数据读写测试
+python -m pytest tests/test_pet_client.py -v
+```
+
+### 调试 AI 对话
+
+```bash
+# 直接调用 chat 接口
+curl -X POST http://127.0.0.1:18080/ai/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "你好，小Q",
+    "context": {"user_id": "default"}
+  }'
+```
+
+---
+
+## Magic Moment
+
+<img alt="img_1.png" height="400" src="img_1.png"/>
+
+<img alt="img_2.png" height="400" src="img_2.png"/>
+---
+
+## License
+
+MIT
