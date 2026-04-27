@@ -89,28 +89,38 @@ class Memory:
     id: Optional[int] = None
     memory_type: str = ""  # preference | fact | relationship | event
     content: str = ""
+    normalized_content: Optional[str] = None
+    canonical_key: Optional[str] = None
     importance: float = 0.5
     source: str = ""  # conversation | observation | explicit
+    source_episode_id: Optional[int] = None
     tags: List[str] = field(default_factory=list)
     category: Optional[str] = None  # entertainment | news | personal | skill
+    is_active: bool = True
     access_count: int = 0
     last_accessed: Optional[datetime] = None
     user_id: str = "default"
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "memory_type": self.memory_type,
             "content": self.content,
+            "normalized_content": self.normalized_content,
+            "canonical_key": self.canonical_key,
             "importance": self.importance,
             "source": self.source,
+            "source_episode_id": self.source_episode_id,
             "tags": self.tags,
             "category": self.category,
+            "is_active": self.is_active,
             "access_count": self.access_count,
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "user_id": self.user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
     @classmethod
@@ -120,14 +130,19 @@ class Memory:
             id=row["id"],
             memory_type=row["memory_type"],
             content=row["content"],
+            normalized_content=row["normalized_content"] if "normalized_content" in row else None,
+            canonical_key=row["canonical_key"] if "canonical_key" in row else None,
             importance=row["importance"],
             source=row["source"],
+            source_episode_id=row["source_episode_id"] if "source_episode_id" in row else None,
             tags=json.loads(row["tags"]) if row["tags"] else [],
             category=row["category"],
+            is_active=bool(row["is_active"]) if "is_active" in row and row["is_active"] is not None else True,
             access_count=row["access_count"],
             last_accessed=datetime.fromisoformat(row["last_accessed"]) if row["last_accessed"] else None,
             user_id=row["user_id"],
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            updated_at=datetime.fromisoformat(row["updated_at"]) if "updated_at" in row and row["updated_at"] else None,
         )
 
 
@@ -174,9 +189,11 @@ class Preference:
     preference_type: str = ""  # topic | entertainment | interaction
     key: str = ""
     value: Any = None
+    canonical_key: Optional[str] = None
     confidence: float = 0.5
     source: str = ""  # conversation | observation | explicit
     source_content: Optional[str] = None
+    source_episode_id: Optional[int] = None
     user_id: str = "default"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -187,9 +204,11 @@ class Preference:
             "preference_type": self.preference_type,
             "key": self.key,
             "value": self.value,
+            "canonical_key": self.canonical_key,
             "confidence": self.confidence,
             "source": self.source,
             "source_content": self.source_content,
+            "source_episode_id": self.source_episode_id,
             "user_id": self.user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -203,9 +222,11 @@ class Preference:
             preference_type=row["preference_type"],
             key=row["key"],
             value=json.loads(row["value"]) if row["value"] else None,
+            canonical_key=row["canonical_key"] if "canonical_key" in row else None,
             confidence=row["confidence"],
             source=row["source"],
             source_content=row["source_content"],
+            source_episode_id=row["source_episode_id"] if "source_episode_id" in row else None,
             user_id=row["user_id"],
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,

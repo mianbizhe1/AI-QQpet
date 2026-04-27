@@ -33,6 +33,7 @@
         AGENT_TICK_MIN_INTERVAL: 2 * 60 * 1000,
         AGENT_TICK_URGENT_INTERVAL: 30 * 1000,
         PERIODIC_SCREENSHOT_INTERVAL: 30 * 60 * 1000,
+        WEIBO_HOT_SEARCH_INTERVAL: 10 * 60 * 1000,
         VISION_STATUS_CACHE_TTL: 5 * 60 * 1000,
         STARTUP_WEATHER_DELAY: 5000,
     };
@@ -182,7 +183,9 @@
         constructor(brain) {
             this.brain = brain;
             this.shortTerm = [];  // 短期记忆：当前会话
-            this.midTerm = [];    // 中期记忆：重要事件（已修复：之前是死代码）
+            this.midTermEvents = [];   // 中期事件记忆：真实互动与重要事件
+            this.derivedHints = [];    // 派生提示：推荐、画像镜像、总结句
+            this.midTerm = this.midTermEvents; // 兼容旧调用
             this.personality = this.loadPersonality();
             this.lastInteraction = {};
             this.cooldowns = {};
@@ -198,10 +201,24 @@
                     const stored = global.$Store.getItem('aiMemory');
                     if (stored) {
                         this.shortTerm = stored.shortTerm || [];
-                        this.midTerm = stored.midTerm || [];
+                        this.midTermEvents = stored.midTermEvents || [];
+                        this.derivedHints = stored.derivedHints || [];
+                        if ((!this.midTermEvents.length && !this.derivedHints.length) && Array.isArray(stored.midTerm)) {
+                            const restored = stored.midTerm.map((m) => this._normalizeMemoryEntry(m, 'mid_event'));
+                            this.midTermEvents = restored.filter((m) => !this._isDerivedMemory(m));
+                            this.derivedHints = restored.filter((m) => this._isDerivedMemory(m));
+                        }
+                        this.shortTerm = this.shortTerm.map((m) => this._normalizeMemoryEntry(m, 'short'));
+                        this.midTermEvents = this.midTermEvents.map((m) => this._normalizeMemoryEntry(m, 'mid_event'));
+                        this.derivedHints = this.derivedHints.map((m) => this._normalizeMemoryEntry(m, 'derived_hint'));
+                        const now = Date.now();
+                        const shortTermMaxAge = 12 * 60 * 60 * 1000;
+                        this.shortTerm = this.shortTerm.filter(m => (m.timestamp || now) > now - shortTermMaxAge);
                         // 清理过期记忆（超过7天的中期记忆）
                         const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-                        this.midTerm = this.midTerm.filter(m => m.timestamp > weekAgo);
+                        this.midTermEvents = this.midTermEvents.filter(m => m.timestamp > weekAgo);
+                        this.derivedHints = this.derivedHints.filter(m => m.timestamp > weekAgo);
+                        this._syncLegacyBuckets();
                     }
                 }
             } catch (e) {
@@ -217,12 +234,36 @@
                 if (global.$Store) {
                     global.$Store.setItem('aiMemory', {
                         shortTerm: this.shortTerm,
-                        midTerm: this.midTerm,
+                        midTerm: this.midTermEvents,
+                        midTermEvents: this.midTermEvents,
+                        derivedHints: this.derivedHints,
                     });
                 }
             } catch (e) {
                 console.warn('[AIMemory] _saveToStore failed:', e);
             }
+        }
+
+        _syncLegacyBuckets() {
+            this.midTerm = this.midTermEvents;
+        }
+
+        /**
+         * 统一补齐记忆条目的元数据，避免派生记忆回流污染后端。
+         */
+        _normalizeMemoryEntry(event, bucket = 'short') {
+            const item = { ...event };
+            item.timestamp = item.timestamp || Date.now();
+            item.bucket = item.bucket || bucket;
+            item.source = item.source || 'local';
+            if (typeof item.replayToBackend !== 'boolean') {
+                item.replayToBackend = !['backend', 'profile', 'derived'].includes(item.source);
+            }
+            return item;
+        }
+
+        _isDerivedMemory(item) {
+            return ['backend', 'profile', 'derived'].includes(item?.source) || item?.bucket === 'derived_hint';
         }
 
         /**
@@ -295,10 +336,7 @@
          * 添加短期记忆
          */
         addShortTerm(event) {
-            this.shortTerm.push({
-                ...event,
-                timestamp: Date.now()
-            });
+            this.shortTerm.push(this._normalizeMemoryEntry(event, 'short'));
             // 只保留最近20条
             if (this.shortTerm.length > 20) {
                 this.shortTerm.shift();
@@ -311,23 +349,42 @@
          * 修复：之前 midTerm 写了但从未被读取
          */
         addMidTerm(event) {
+            return this.addMidTermEvent(event);
+        }
+
+        addMidTermEvent(event) {
             // 判断是否值得记住（降低阈值从0.7到0.3）
             if (event.emotionIntensity >= 0.3 || this.isImportantEvent(event.type)) {
-                this.midTerm.push({
+                this.midTermEvents.push(this._normalizeMemoryEntry({
                     ...event,
-                    timestamp: Date.now(),
                     importance: event.emotionIntensity || this._calcImportance(event)
-                });
+                }, 'mid_event'));
                 // 只保留最近100条
-                if (this.midTerm.length > 100) {
+                if (this.midTermEvents.length > 100) {
                     // 按重要性排序，删除最不重要的
-                    this.midTerm.sort((a, b) => (b.importance || 0.5) - (a.importance || 0.5));
-                    this.midTerm.pop();
+                    this.midTermEvents.sort((a, b) => (b.importance || 0.5) - (a.importance || 0.5));
+                    this.midTermEvents.pop();
                 }
                 // 触发性格更新
                 this.updatePersonality(event.type, event.emotionIntensity * 0.01);
+                this._syncLegacyBuckets();
                 this._saveToStore(); // 持久化
             }
+        }
+
+        addDerivedHint(event) {
+            const normalized = this._normalizeMemoryEntry({
+                ...event,
+                source: event.source || 'derived',
+                replayToBackend: false,
+                importance: event.importance || event.emotionIntensity || 0.35,
+            }, 'derived_hint');
+            this.derivedHints.push(normalized);
+            if (this.derivedHints.length > 100) {
+                this.derivedHints.sort((a, b) => (b.importance || 0.5) - (a.importance || 0.5));
+                this.derivedHints.pop();
+            }
+            this._saveToStore();
         }
 
         /**
@@ -361,8 +418,20 @@
          * 修复：之前只返回 shortTerm，midTerm 是死代码
          */
         getRecentInteractions(limit = 5) {
+            return this._getScoredInteractions(limit);
+        }
+
+        /**
+         * 获取可用于后端召回的真实互动，过滤掉派生/推荐类记忆。
+         */
+        getReplayableInteractions(limit = 5) {
+            return this._getScoredInteractions(limit, { replayOnly: true });
+        }
+
+        _getScoredInteractions(limit = 5, options = {}) {
+            const replayOnly = !!options.replayOnly;
             // 合并 shortTerm 和 midTerm，按时间排序
-            const all = [...this.midTerm, ...this.shortTerm];
+            const all = [...this.midTermEvents, ...this.shortTerm].filter((item) => !replayOnly || item.replayToBackend);
             // 应用时间衰减：越久远权重越低
             const now = Date.now();
             const scored = all.map(item => ({
@@ -392,8 +461,15 @@
          */
         getMidTerm(limit = 20) {
             const now = Date.now();
-            return this.midTerm
+            return this.midTermEvents
                 .filter(m => this._timeDecay(now - m.timestamp) > 0.3)
+                .slice(-limit);
+        }
+
+        getDerivedHints(limit = 20) {
+            const now = Date.now();
+            return this.derivedHints
+                .filter(m => this._timeDecay(now - m.timestamp) > 0.2)
                 .slice(-limit);
         }
 
@@ -420,10 +496,12 @@
         getContextForDialogue() {
             const recent = this.getRecentInteractions(5);
             const midTermTopics = this.getMidTerm(3);
+            const derivedHints = this.getDerivedHints(3);
             const context = {
                 personality: this.personality,
                 recentTopics: recent.map(r => r.content).filter(Boolean),
                 midTermTopics: midTermTopics.map(m => m.content).filter(Boolean),
+                derivedHints: derivedHints.map(m => m.content).filter(Boolean),
                 lastInteractionTime: recent.length > 0 ? recent[recent.length - 1].timestamp : null,
             };
             return context;
@@ -625,6 +703,9 @@
             this.serverStarting = null;
             this.lastAgentTickAt = 0;
             this.lastPeriodicScreenshotAt = 0;
+            this.lastWeiboHotSearchAt = 0;
+            this.lastWeiboHotSearchSignature = '';
+            this.latestWeiboHotSearch = null;
             this.visionStatusCache = null;
             this.visionStatusCheckedAt = 0;
             this.tickCount = 0;
@@ -742,6 +823,7 @@
                 const userContext = this.perception.analyzeUserContext();
 
                 await this.maybeCapturePeriodicScreenshot();
+                await this.maybeFetchPeriodicWeiboHotSearch(timeContext, userContext);
 
                 const fallbackDecision = this.decide(petState, timeContext, userContext);
                 if (this.shouldRequestAgentForTick(petState, fallbackDecision)) {
@@ -938,6 +1020,117 @@
             });
         }
 
+        async maybeFetchPeriodicWeiboHotSearch(timeContext, userContext) {
+            const now = Date.now();
+            if (now - this.lastWeiboHotSearchAt < AI_CONFIG.WEIBO_HOT_SEARCH_INTERVAL) {
+                return;
+            }
+
+            this.lastWeiboHotSearchAt = now;
+
+            try {
+                const response = await this.executeSkill('weibo_hot_search', {
+                    max_results: 10,
+                    user_id: 'default',
+                }, {
+                    context: {
+                        trigger: 'periodic_weibo_hot_search',
+                    },
+                });
+
+                if (!response?.success || !response?.result?.success) {
+                    console.warn('[AIBrain] weibo hot search failed:', response?.error || response?.result?.error);
+                    return;
+                }
+
+                const result = response.result;
+                const items = result?.data?.items || [];
+                if (!items.length) {
+                    return;
+                }
+                const topItem = result?.data?.top_item || items[0];
+                if (!topItem?.title) {
+                    return;
+                }
+
+                const signature = topItem.title;
+                const changed = signature !== this.lastWeiboHotSearchSignature;
+                this.lastWeiboHotSearchSignature = signature;
+                const labelText = topItem.label ? `（${topItem.label}）` : '';
+                const gossipLine = `微博榜一现在是“${topItem.title}”${labelText}`;
+                const topSummary = String(result?.data?.top_summary || '').trim();
+                const detailLine = topSummary || `我只看到词条是“${topItem.title}”，还没抓到它到底发生了什么。`;
+                this.latestWeiboHotSearch = {
+                    title: topItem.title,
+                    label: topItem.label || '',
+                    summary: detailLine,
+                    fetchedAt: result?.data?.fetched_at || '',
+                    href: topItem.href || '',
+                };
+
+                this.memory.addDerivedHint({
+                    type: 'weibo_hot_search',
+                    content: gossipLine,
+                    emotionIntensity: 0.35,
+                    source: 'derived',
+                    replayToBackend: false,
+                });
+
+                this.memory.addShortTerm({
+                    type: 'weibo_hot_search',
+                    content: gossipLine,
+                    source: 'derived',
+                    replayToBackend: false,
+                });
+
+                if (changed && !timeContext?.isQuietHour && userContext?.canInteract && global.openSpeak) {
+                    global.openSpeak({
+                        data: {
+                            type: 'text',
+                            data: `主人~ 微博热搜更新啦：\n\n${result.content}`,
+                            submitText: '详细说说',
+                        },
+                        otherOpt: {
+                            type: 'command',
+                            command: 'weibo_hot_search_detail',
+                        },
+                        active: 'speak',
+                    });
+                }
+            } catch (error) {
+                console.error('[AIBrain] maybeFetchPeriodicWeiboHotSearch failed:', error);
+            }
+        }
+
+        speakLatestWeiboHotSearchDetail() {
+            if (!global.openSpeak) {
+                return;
+            }
+
+            const latest = this.latestWeiboHotSearch;
+            if (!latest?.title) {
+                global.openSpeak({
+                    data: {
+                        type: 'text',
+                        data: '我这会儿还没存到最新那条微博热搜，等我再刷一下哦~',
+                        submitText: '',
+                    },
+                    active: 'speak',
+                });
+                return;
+            }
+
+            const labelText = latest.label ? `（${latest.label}）` : '';
+            global.openSpeak({
+                data: {
+                    type: 'text',
+                    data: `“${latest.title}”${labelText}这条热搜，我帮你总结一下：${latest.summary}`,
+                    submitText: '',
+                },
+                active: 'speak',
+            });
+        }
+
         async requestAgentDecision(event, extraContext = {}) {
             try {
                 await this.ensureAgentServer();
@@ -951,10 +1144,11 @@
                         ...extraContext.userContext,
                         screenshotData: extraContext.screenshotData || null,
                     },
-                    recent_memory: this.memory.getRecentInteractions(8).map((item) => ({
+                    recent_memory: this.memory.getReplayableInteractions(8).map((item) => ({
                         type: item.type,
                         content: item.content,
                         timestamp: item.timestamp,
+                        source: item.source,
                     })),
                     local_context: {
                         petState: extraContext.petState || null,
@@ -1041,9 +1235,6 @@
             if (response?.decision) {
                 this.applyAgentDecision(response.decision, 'chat');
 
-                // 发送对话到后端进行学习（异步，不阻塞响应）
-                this._learnFromConversation(message, response.decision.dialogue);
-
                 return response.decision;
             }
 
@@ -1056,24 +1247,6 @@
         }
 
         /**
-         * 发送对话到后端进行学习
-         */
-        async _learnFromConversation(userMessage, petResponse) {
-            if (!userMessage) return;
-            try {
-                await this.httpJson('POST', '/memory/learn', {
-                    messages: [
-                        { role: 'user', content: userMessage },
-                        { role: 'assistant', content: petResponse || '' }
-                    ],
-                    pet_name: '小Q',
-                });
-            } catch (e) {
-                console.warn('[AIBrain] _learnFromConversation failed:', e);
-            }
-        }
-
-        /**
          * 从后端同步记忆（定期调用）
          */
         async _syncMemoryFromBackend() {
@@ -1083,11 +1256,12 @@
                 if (result && result.recommendations) {
                     for (const rec of result.recommendations) {
                         if (rec.type === 'entertainment' || rec.type === 'hot_topic') {
-                            this.memory.addMidTerm({
+                            this.memory.addDerivedHint({
                                 type: 'backend_recommend',
                                 content: rec.content,
                                 emotionIntensity: 0.4,
-                                source: 'backend'
+                                source: 'backend',
+                                replayToBackend: false,
                             });
                         }
                     }
@@ -1096,13 +1270,14 @@
                 // 获取主人画像用于更新上下文
                 const profile = await this.httpJson('GET', '/memory/master');
                 if (profile && profile.interests) {
-                    // 将兴趣注入到 midTerm 供对话生成使用
+                    // 将兴趣注入到派生提示供对话生成使用
                     for (const interest of profile.interests.slice(0, 3)) {
-                        this.memory.addMidTerm({
+                        this.memory.addDerivedHint({
                             type: 'interest',
                             content: `主人对${interest}感兴趣`,
                             emotionIntensity: 0.3,
-                            source: 'profile'
+                            source: 'profile',
+                            replayToBackend: false,
                         });
                     }
                 }
@@ -1456,7 +1631,8 @@
                 isRunning: this.isRunning,
                 personality: this.memory.personality,
                 shortTermCount: this.memory.shortTerm.length,
-                midTermCount: this.memory.midTerm.length,
+                midTermCount: this.memory.midTermEvents.length,
+                derivedHintCount: this.memory.derivedHints.length,
                 cooldowns: this.memory.cooldowns,
             };
         }

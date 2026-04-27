@@ -4,13 +4,17 @@ AI LLM 模块
 """
 
 import os
-from pathlib import Path
-from dotenv import load_dotenv
+from runtime_paths import existing_paths, env_candidates
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - 允许无 dotenv 的轻量运行
+    def load_dotenv(*args, **kwargs):
+        return False
 
 # 加载 .env 环境变量
-env_path = Path(__file__).parent.parent.parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
+for env_path in existing_paths(env_candidates()):
+    load_dotenv(env_path, override=False)
 
 from .llm_client import LLMClient, Message, LLMResponse, get_llm_client, reset_llm_client, load_image_as_base64, get_image_mime_type
 from .dialogue_generator import (

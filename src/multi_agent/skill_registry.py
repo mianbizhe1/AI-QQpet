@@ -160,7 +160,7 @@ class SkillRegistry:
 
     def _register_builtin_skills(self):
         """注册内置技能"""
-        from .skills.research_skills import AIPaperSearchSkill, NewsSearchSkill
+        from .skills.research_skills import AIPaperSearchSkill, NewsSearchSkill, WeiboHotSearchSkill
         from .skills.productivity_skills import ReminderSkill, TimerSkill
         from .skills.entertainment_skills import JokeSkill, StorySkill
         from .skills.entertainment_skill import EntertainmentSkill, EntertainmentUpdateSkill
@@ -169,6 +169,7 @@ class SkillRegistry:
         builtin_skills = [
             AIPaperSearchSkill(),
             NewsSearchSkill(),
+            WeiboHotSearchSkill(),
             ReminderSkill(),
             TimerSkill(),
             JokeSkill(),

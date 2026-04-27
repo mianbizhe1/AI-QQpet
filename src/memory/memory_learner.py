@@ -42,6 +42,7 @@ class MemoryLearner:
         messages: List[Dict[str, str]],
         pet_name: str = "小Q",
         user_id: str = "default",
+        source_episode_id: Optional[int] = None,
     ) -> LearningResult:
         """
         从对话中学习
@@ -64,12 +65,18 @@ class MemoryLearner:
         llm_client = self._get_llm_client()
         if llm_client and llm_client.is_configured():
             try:
-                return self._learn_with_llm(conversation_text, messages, pet_name, user_id)
+                return self._learn_with_llm(
+                    conversation_text,
+                    messages,
+                    pet_name,
+                    user_id,
+                    source_episode_id=source_episode_id,
+                )
             except Exception as e:
                 print(f"[MemoryLearner] LLM学习失败: {e}")
 
         # 降级：使用规则提取
-        return self._learn_with_rules(conversation_text, user_id)
+        return self._learn_with_rules(conversation_text, user_id, source_episode_id=source_episode_id)
 
     def _build_conversation_text(self, messages: List[Dict[str, str]]) -> str:
         """构建对话文本"""
@@ -89,6 +96,7 @@ class MemoryLearner:
         messages: List[Dict[str, str]],
         pet_name: str,
         user_id: str,
+        source_episode_id: Optional[int] = None,
     ) -> LearningResult:
         """使用LLM从对话中学习"""
         from ai_llm import Message
@@ -140,7 +148,7 @@ class MemoryLearner:
         result = self._parse_llm_response(response.content)
 
         # 保存学习结果
-        self._save_learning_result(result, user_id)
+        self._save_learning_result(result, user_id, source_episode_id=source_episode_id)
 
         return result
 
@@ -179,7 +187,7 @@ class MemoryLearner:
                     pass
             return LearningResult()
 
-    def _learn_with_rules(self, text: str, user_id: str) -> LearningResult:
+    def _learn_with_rules(self, text: str, user_id: str, source_episode_id: Optional[int] = None) -> LearningResult:
         """使用规则从文本中提取信息（降级方案）"""
         result = LearningResult()
 
@@ -200,11 +208,11 @@ class MemoryLearner:
             result.interests = list(set(interests[:5]))
 
         # 保存规则提取的结果
-        self._save_learning_result(result, user_id)
+        self._save_learning_result(result, user_id, source_episode_id=source_episode_id)
 
         return result
 
-    def _save_learning_result(self, result: LearningResult, user_id: str):
+    def _save_learning_result(self, result: LearningResult, user_id: str, source_episode_id: Optional[int] = None):
         """保存学习结果"""
         # 更新兴趣
         if result.interests:
@@ -231,12 +239,16 @@ class MemoryLearner:
 
         # 保存新记忆
         for memory_content in result.new_memories:
+            category = self._infer_memory_category(memory_content)
             self.memory_manager.add_memory(
                 memory_type="fact",
                 content=memory_content,
                 source="conversation",
-                importance=0.6,
+                importance=self.calculate_importance(memory_content, "conversation"),
+                category=category,
                 user_id=user_id,
+                canonical_key=self.memory_manager.build_canonical_key("fact", memory_content, category),
+                source_episode_id=source_episode_id,
             )
 
         # 保存偏好（新增）
@@ -256,7 +268,18 @@ class MemoryLearner:
                     confidence=0.6,
                     source="conversation",
                     user_id=user_id,
+                    source_episode_id=source_episode_id,
                 )
+
+    def _infer_memory_category(self, content: str) -> str:
+        text = str(content or "")
+        if any(keyword in text for keyword in ["工作", "上班", "同事", "老板"]):
+            return "personal"
+        if any(keyword in text for keyword in ["喜欢", "爱看", "追", "综艺", "剧", "电影"]):
+            return "entertainment"
+        if any(keyword in text for keyword in ["学习", "写代码", "编程", "技术"]):
+            return "skill"
+        return "personal"
 
     def extract_interests(self, text: str) -> List[str]:
         """从文本中提取兴趣领域"""

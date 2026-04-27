@@ -371,6 +371,10 @@
   flex-direction: row-reverse !important;
   padding: 5px;
 }
+.t_m_foot {
+  align-items: center;
+  gap: 8px;
+}
 .t_m_head .t_m_close {
   height: 25px;
   width: 25px;
@@ -429,6 +433,26 @@
   text-align: center;
   white-space: normal;
   line-height: 1.4;
+}
+.t_m_foot .t_m_open_dir {
+  min-width: 98px;
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(119, 74, 29, 0.45);
+  background: linear-gradient(180deg, #fff6de 0%, #f0d6a4 100%);
+  color: #6e4319;
+  font-size: 12px;
+  line-height: 23px;
+  text-align: center;
+  user-select: none;
+}
+.t_m_foot .t_m_open_dir:hover {
+  background: linear-gradient(180deg, #fff9eb 0%, #f5dfb6 100%);
+}
+.t_m_foot .t_m_open_dir:active {
+  position: relative;
+  top: 1px;
 }
 .t_m_foot .t_m_but {
   height: 25px;

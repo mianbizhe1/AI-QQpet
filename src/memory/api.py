@@ -150,9 +150,15 @@ class MemoryAPI:
         messages: list,
         pet_name: str = "小Q",
         user_id: str = "default",
+        source_episode_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """从对话中学习"""
-        result = self.learner.learn_from_conversation(messages, pet_name, user_id)
+        result = self.learner.learn_from_conversation(
+            messages,
+            pet_name,
+            user_id,
+            source_episode_id=source_episode_id,
+        )
         return result.to_dict()
 
     # ==================== 记忆管理接口 ====================
@@ -185,6 +191,8 @@ class MemoryAPI:
         tags: Optional[list] = None,
         category: Optional[str] = None,
         user_id: str = "default",
+        canonical_key: Optional[str] = None,
+        source_episode_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """添加记忆"""
         memory = self.memory_manager.add_memory(
@@ -195,6 +203,8 @@ class MemoryAPI:
             tags=tags,
             category=category,
             user_id=user_id,
+            canonical_key=canonical_key,
+            source_episode_id=source_episode_id,
         )
         return memory.to_dict()
 

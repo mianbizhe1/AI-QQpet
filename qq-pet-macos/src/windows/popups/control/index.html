@@ -126,6 +126,14 @@
           </div>
           <div class="t_m_foot fc w100" cando>
             <div
+              class="t_m_open_dir focusPress"
+              cando
+              v-if="tipOpt?.data?.filepath"
+              @click="openSaveDirectory"
+            >
+              打开保存目录
+            </div>
+            <div
               class="t_m_but focusPress"
               cando
               @click="closeTip(false)"
@@ -159,7 +167,7 @@
               doActiveMenu.value == 'task'?
               (item.isTake == 1? 'focusPress':'')
               :  (item.name  ? 'focusPress':''),
-              doActiveMenu.value == 'trip' ? 'tripCard' : '']"
+              doActiveMenu.value == 'trip' || doActiveMenu.value == 'review' ? 'tripCard' : '']"
             >
               <div class="c_m_a_icon fccC f1" cando>
                 <img

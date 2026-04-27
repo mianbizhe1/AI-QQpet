@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from runtime_paths import ensure_runtime_layout, life_album_dir, llm_config_path, scheduler_db_path
 
 # 添加src目录到路径
 sys.path.insert(0, os.path.dirname(__file__))
@@ -46,8 +47,9 @@ HOST = "127.0.0.1"
 PORT = 18080
 
 # LLM配置文件路径
-LLM_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_llm", "config.yaml")
-LIFE_ALBUM_STORE = LifeAlbumStore(Path(__file__).resolve().parent / "data" / "life_album")
+ensure_runtime_layout()
+LLM_CONFIG_PATH = str(llm_config_path())
+LIFE_ALBUM_STORE = LifeAlbumStore(life_album_dir())
 
 # ==================== HTTP服务器 ====================
 try:
@@ -556,33 +558,50 @@ class QQPETHandler(BaseHTTPRequestHandler):
         records = payload.get("records", [])
         count = payload.get("count", 0)
         pet_name = (records[0].get("pet_name") if records else "小Q") or "小Q"
+        interaction_records = [
+            record
+            for record in records
+            if (record.get("event") == "chat" or record.get("user_message") or record.get("llm_response"))
+        ]
+        source_records = interaction_records or records
 
         lines = [
-            f"为QQ宠物 {pet_name} 生成一张漫画风生活回忆相册图。",
+            f"为QQ宠物 {pet_name} 生成一张漫画风回忆相册图。",
             f"聚合维度：{granularity}。",
             f"时间范围：{period or '最近记录'}。",
-            f"记录条数：{count}。",
+            f"素材条数：{len(source_records) or count}。",
+            "画面重点不是电脑截图，也不是软件界面。",
+            "画面重点是主人和小Q之间的陪伴、聊天、互动和情绪交流。",
+            "优先根据文字互动内容设计画面，把对话转成生活化动作和表情。",
         ]
 
-        for index, record in enumerate(records[:8], start=1):
-            snippet = record.get("vision_summary") or record.get("llm_response") or record.get("user_message") or ""
-            snippet = " ".join(str(snippet).split())[:120]
-            app_name = record.get("frontmost_app", "")
-            if app_name:
-                lines.append(f"{index}. [{record.get('timestamp', '')}] {app_name} - {snippet}")
+        for index, record in enumerate(source_records[:8], start=1):
+            user_text = " ".join(str(record.get("user_message", "")).split())[:80]
+            pet_text = " ".join(str(record.get("llm_response", "")).split())[:80]
+            vision_text = " ".join(str(record.get("vision_summary", "")).split())[:60]
+
+            if user_text or pet_text:
+                lines.append(
+                    f"{index}. [{record.get('timestamp', '')}] 主人：{user_text or '...'} | 小Q：{pet_text or '...'}"
+                )
+            elif vision_text:
+                lines.append(f"{index}. [{record.get('timestamp', '')}] 背景参考：{vision_text}")
             else:
-                lines.append(f"{index}. [{record.get('timestamp', '')}] {snippet}")
+                lines.append(f"{index}. [{record.get('timestamp', '')}] 小Q陪在主人身边的普通日常")
 
         if granularity == "capture":
-            lines.append("画成单次生活抓拍的漫画纪念卡，温暖、可爱、像相册单页。")
+            lines.append("画成单次互动纪念卡，像一张主人和小Q的陪伴快照。")
         elif granularity == "day":
             lines.append("画成同一天的四格或多格漫画日记，相册页感。")
+            lines.append("每一格都尽量体现主人和小Q之间的互动，而不是单独的桌面场景。")
         elif granularity == "week":
-            lines.append("画成一周生活拼贴漫画页，保留每天不同片段。")
+            lines.append("画成一周互动拼贴漫画页，保留每天不同的陪伴片段。")
         else:
             lines.append("画成整月回忆相册封面或拼贴页，突出节奏变化与陪伴感。")
 
-        lines.append("不要出现文字水印，不要在画面中直接排版长文字。")
+        lines.append("主人可以以简化人物形象、背影、手部动作、坐在电脑前等方式出现。")
+        lines.append("小Q要作为明确主角之一，和主人有对视、陪伴、说话、贴贴或一起看屏幕等互动。")
+        lines.append("不要把截图内容直接画成电脑界面复刻，不要出现文字水印，不要在画面中直接排版长文字。")
         return "\n".join(lines)
 
     def _build_ai_response(self, data):
@@ -610,7 +629,9 @@ class QQPETHandler(BaseHTTPRequestHandler):
 
         tool_calls = []
         agent_name = "python_llm"
+        success = True
 
+        decision = None
         if event in {"chat", "vision_watch"} and TOOLS_AVAILABLE:
             tool_result = self._run_tool_agent_chat(
                 message=message,
@@ -619,10 +640,12 @@ class QQPETHandler(BaseHTTPRequestHandler):
                 event=event,
                 screenshot_data=user_context.get("screenshotData"),
                 user_context=user_context,
+                recent_memory=recent_memory,
             )
             if tool_result:
                 agent_name = "tool_agent"
                 tool_calls = tool_result.get("tool_calls", [])
+                success = bool(tool_result.get("success", False))
                 decision = self._normalize_decision(
                     {
                         "action": "none",
@@ -633,28 +656,17 @@ class QQPETHandler(BaseHTTPRequestHandler):
                     },
                     self._fallback_decision(event, status_dict),
                 )
-                return {
-                    "agent": agent_name,
-                    "event": event,
-                    "message": message,
-                    "response": decision.get("dialogue", ""),
-                    "decision": decision,
-                    "tool_calls": tool_calls,
-                    "success": bool(tool_result.get("success", False)),
-                    "pet_status": status_dict,
-                    "personality": personality,
-                    "timestamp": datetime.now().isoformat(),
-                }
 
-        decision = self._llm_decide(
-            event=event,
-            status=status_dict,
-            personality=personality,
-            inventory=inventory,
-            message=message,
-            user_context=user_context,
-            recent_memory=recent_memory,
-        )
+        if decision is None:
+            decision = self._llm_decide(
+                event=event,
+                status=status_dict,
+                personality=personality,
+                inventory=inventory,
+                message=message,
+                user_context=user_context,
+                recent_memory=recent_memory,
+            )
 
         action_result = None
         action = decision.get("action", "none")
@@ -694,14 +706,14 @@ class QQPETHandler(BaseHTTPRequestHandler):
             "response": decision.get("dialogue", ""),
             "decision": decision,
             "tool_calls": tool_calls,
-            "success": True,
+            "success": success,
             "pet_status": status_dict,
             "personality": personality,
             "pending_notifications": pending_notifications,
             "timestamp": datetime.now().isoformat(),
         }
 
-    def _run_tool_agent_chat(self, message, status_dict, personality, event="chat", screenshot_data=None, user_context=None):
+    def _run_tool_agent_chat(self, message, status_dict, personality, event="chat", screenshot_data=None, user_context=None, recent_memory=None):
         """聊天事件优先尝试ToolAgent"""
         try:
             from ai_agent import ToolAgent
@@ -718,6 +730,8 @@ class QQPETHandler(BaseHTTPRequestHandler):
                 "user_context": user_context or {},
                 "user_id": (user_context or {}).get("user_id", "default"),
                 "event": event or (user_context or {}).get("event") or "chat",
+                "recent_memory": recent_memory or [],
+                "memory_learning_enabled": False,
             }
             result = agent.chat(message, context)
             print(
@@ -973,7 +987,7 @@ JSON格式：
         """获取或创建调度器实例"""
         if not hasattr(self, "_scheduler"):
             if MULTI_AGENT_AVAILABLE:
-                db_path = os.path.join(os.path.dirname(__file__), "data", "scheduler.db")
+                db_path = str(scheduler_db_path())
                 os.makedirs(os.path.dirname(db_path), exist_ok=True)
                 self._scheduler = TaskScheduler(db_path=db_path)
             else:
@@ -1267,7 +1281,8 @@ JSON格式：
             messages = data.get("messages", [])
             pet_name = data.get("pet_name", "小Q")
             user_id = self._get_user_id()
-            result = api.learn_from_conversation(messages, pet_name, user_id)
+            source_episode_id = data.get("source_episode_id")
+            result = api.learn_from_conversation(messages, pet_name, user_id, source_episode_id=source_episode_id)
             self.send_json(result)
         except Exception as e:
             self.send_json({"error": str(e)}, status=500)
@@ -1295,8 +1310,12 @@ JSON格式：
                 importance = data.get("importance", 0.5)
                 tags = data.get("tags")
                 category = data.get("category")
+                canonical_key = data.get("canonical_key")
+                source_episode_id = data.get("source_episode_id")
                 result = api.add_memory(
-                    memory_type, content, source, importance, tags, category, user_id
+                    memory_type, content, source, importance, tags, category, user_id,
+                    canonical_key=canonical_key,
+                    source_episode_id=source_episode_id,
                 )
             elif action == "delete":
                 memory_id = data.get("memory_id")
@@ -1347,7 +1366,7 @@ JSON格式：
             user_id = user_context.get("user_id", "default")
 
             # 1. 保存对话片段
-            api.save_tick_episode(
+            episode_result = api.save_tick_episode(
                 event=event,
                 dialogue=dialogue,
                 decision=decision,
@@ -1355,16 +1374,20 @@ JSON格式：
                 user_message=message,
                 user_id=user_id,
             )
+            episode_id = episode_result.get("episode_id") if episode_result else None
 
             # 2. 如果有用户消息，学习用户偏好
             if message and event == "chat":
                 messages = [{"role": "user", "content": message}]
+                if dialogue:
+                    messages.append({"role": "assistant", "content": dialogue})
                 # 只有对话事件才学习用户偏好
                 try:
                     api.learn_from_conversation(
                         messages=messages,
                         pet_name="小Q",
                         user_id=user_id,
+                        source_episode_id=episode_id,
                     )
                 except Exception as e:
                     print(f"[AI] 学习用户偏好失败: {e}")
@@ -1383,6 +1406,7 @@ JSON格式：
                             tags=[action, "pet_action"],
                             category="pet_behavior",
                             user_id=user_id,
+                            source_episode_id=episode_id,
                         )
                 except Exception as e:
                     print(f"[AI] 保存动作记忆失败: {e}")

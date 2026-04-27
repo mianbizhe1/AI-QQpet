@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 from .ipc_protocol import WorkerMessage, AgentMessage
 from .skill_registry import SkillRegistry
 from .persona_wrapper import PersonaWrapper
+from runtime_paths import llm_config_path
 
 
 class SubAgent:
@@ -23,11 +24,7 @@ class SubAgent:
         self.persona = PersonaWrapper()
 
         # 加载LLM配置路径
-        self.llm_config_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "ai_llm",
-            "config.yaml"
-        )
+        self.llm_config_path = str(llm_config_path())
 
     def execute_task(
         self,

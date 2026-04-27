@@ -1,11 +1,19 @@
 <div id="aiChatApp" class="aiChatShell not_drag" cando>
   <div class="chatWindow" cando>
+    <div class="windowGlow" aria-hidden="true"></div>
     <div class="chatTitle" id="move" cando>
-      <div class="titleText" cando>和 {{petName}} 聊天</div>
-      <button class="closeBtn focusPress" cando @click="closeWindow">x</button>
+      <div class="titleGroup" cando>
+        <div class="petBadge" cando>{{petInitial}}</div>
+        <div class="titleCopy" cando>
+          <div class="titleText" cando>和 {{petName}} 聊天</div>
+          <div class="titleSubText" cando>{{loading ? "小企鹅正在认真组织语言" : "软乎乎的陪伴模式已开启"}}</div>
+        </div>
+      </div>
+      <button class="closeBtn focusPress" cando @click="closeWindow" aria-label="关闭聊天窗">×</button>
     </div>
 
     <div class="chatBody" cando ref="body">
+      <div class="chatBackdrop" aria-hidden="true"></div>
       <div
         class="message"
         v-for="item in messages"
@@ -13,20 +21,31 @@
         :class="[item.role]"
         cando
       >
+        <div class="avatar" cando>{{item.role === "pet" ? petInitial : "你"}}</div>
         <div class="bubble" cando>{{item.text}}</div>
         <div class="meta" v-if="item.meta" cando>{{item.meta}}</div>
+      </div>
+      <div class="thinkingRow" v-if="loading" cando>
+        <div class="avatar" cando>{{petInitial}}</div>
+        <div class="thinkingBubble" cando>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
       </div>
     </div>
 
     <form class="chatInput" cando @submit.prevent="sendMessage">
-      <input
-        cando
-        v-model="draft"
-        :disabled="loading"
-        placeholder="和小企鹅说点什么..."
-      />
+      <div class="inputShell" cando>
+        <input
+          cando
+          v-model="draft"
+          :disabled="loading"
+          placeholder="和小企鹅说点什么..."
+        />
+      </div>
       <button class="sendBtn focusPress" cando :disabled="loading || !draft.trim()">
-        {{loading ? "想..." : "发送"}}
+        {{loading ? "思考中" : "发送"}}
       </button>
     </form>
   </div>

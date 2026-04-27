@@ -1,5 +1,12 @@
 {
   "name": "qqpet-automation-root",
   "private": true,
-  "main": "main.js"
+  "main": "main.js",
+  "scripts": {
+    "dev": "npm --prefix qq-pet-macos run dev",
+    "build:backend": "node scripts/build-backend.js",
+    "build:mac": "npm --prefix qq-pet-macos run build:dmg",
+    "build:zip": "npm --prefix qq-pet-macos run build:zip",
+    "build:win": "npm --prefix qq-pet-macos run build:win"
+  }
 }

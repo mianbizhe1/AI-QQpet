@@ -14,6 +14,12 @@
       ],
     }),
 
+    computed: {
+      petInitial() {
+        return this.petName ? this.petName.charAt(0) : "宠";
+      },
+    },
+
     mounted() {
       this.initMove();
       window.electronAPI.aiChat_m_bus((_event, payload) => {
@@ -40,7 +46,23 @@
     methods: {
       initMove() {
         if (typeof move === "function") {
-          new move({ id: "move" }).init();
+          new move({
+            id: "move",
+            mousedown: () => {
+              window.electronAPI.aiChat_h_bus({ event: "dragStart" });
+            },
+            mousemove: (_event, state) => {
+              if (!state?.next) return;
+
+              window.electronAPI.aiChat_h_bus({
+                event: "dragMove",
+                delta: state.next,
+              });
+            },
+            mouseup: () => {
+              window.electronAPI.aiChat_h_bus({ event: "dragEnd" });
+            },
+          }).init();
         }
       },
 

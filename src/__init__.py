@@ -1,11 +1,13 @@
 """
 QQPet Automation - 加载环境变量
 """
-import os
-from pathlib import Path
-from dotenv import load_dotenv
+from runtime_paths import existing_paths, env_candidates
 
-# 查找项目根目录的 .env 文件
-env_path = Path(__file__).parent.parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - 允许无 dotenv 的轻量运行
+    def load_dotenv(*args, **kwargs):
+        return False
+
+for env_path in existing_paths(env_candidates()):
+    load_dotenv(env_path, override=False)

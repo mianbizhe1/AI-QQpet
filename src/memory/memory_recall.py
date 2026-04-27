@@ -77,6 +77,19 @@ class MemoryRecall:
                     "reason": f"与「{search_keyword}」相关",
                 })
 
+            episodes = self.memory_manager.search_episodes(
+                keyword=search_keyword,
+                user_id=user_id,
+                limit=max(2, min(limit, 5)),
+            )
+            for episode in episodes:
+                episode_memory = self._episode_to_memory_payload(episode)
+                results.append({
+                    "memory": episode_memory,
+                    "relevance": self._calculate_episode_relevance(episode_memory, context),
+                    "reason": f"相关对话片段「{search_keyword}」",
+                })
+
         # 2. 基于主人热点话题匹配
         if profile.hot_topics:
             for topic in profile.hot_topics[:3]:
@@ -144,7 +157,45 @@ class MemoryRecall:
 
         # 排序并返回
         results.sort(key=lambda x: x["relevance"], reverse=True)
-        return results[:limit]
+        selected = results[:limit]
+        for result in selected:
+            memory_id = result.get("memory", {}).get("id")
+            if isinstance(memory_id, int):
+                try:
+                    self.memory_manager.update_access(memory_id, user_id)
+                except Exception as e:
+                    print(f"[MemoryRecall] 更新访问统计失败: {e}")
+        return selected
+
+    def _episode_to_memory_payload(self, episode: Dict[str, Any]) -> Dict[str, Any]:
+        created_at = episode.get("created_at")
+        return {
+            "id": f"episode:{episode.get('id')}",
+            "memory_type": "episode",
+            "content": episode.get("summary", ""),
+            "importance": 0.55,
+            "source": "episode",
+            "source_episode_id": episode.get("id"),
+            "tags": json.loads(episode.get("emotional_tags", "[]")) if isinstance(episode.get("emotional_tags"), str) else (episode.get("emotional_tags") or []),
+            "category": "episode",
+            "access_count": 0,
+            "last_accessed": None,
+            "created_at": created_at,
+        }
+
+    def _calculate_episode_relevance(self, episode_memory: Dict[str, Any], context: Dict[str, Any]) -> float:
+        content = episode_memory.get("content", "")
+        pseudo_memory = Memory(
+            id=None,
+            memory_type="episode",
+            content=content,
+            importance=episode_memory.get("importance", 0.55),
+            source="episode",
+            tags=episode_memory.get("tags", []),
+            category="episode",
+            access_count=0,
+        )
+        return self._calculate_relevance(pseudo_memory, context) * 0.9
 
     def _extract_topic_with_llm(self, short_text: str, user_id: str) -> Optional[str]:
         """用 LLM 从短消息中提取语义话题"""

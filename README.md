@@ -62,6 +62,55 @@ npx electron .
 
 宠物出现在桌面后，AI 大脑自动连接后端 API，开始智能交互。
 
+### 4. 打包成可安装应用
+
+现在支持把 Electron 前端和 Python 后端一起打进安装包，安装后打开 App 会自动拉起本地 AI 服务，不再需要单独开 `python -m src.ai_server`。
+
+首次打包前请确保本机有：
+
+- Python 3.10+
+- Node.js 18+
+- `qq-pet-macos` 下已经执行过 `npm install`
+
+构建 macOS 安装包：
+
+```bash
+npm run build:mac
+```
+
+或进入桌面端目录单独执行：
+
+```bash
+cd qq-pet-macos
+npm run build:dmg
+```
+
+构建过程会自动：
+
+- 创建 Python 构建虚拟环境
+- 安装 `requirements.txt` 和 `pyinstaller`
+- 生成内置后端 sidecar
+- 用 `electron-builder` 输出 `.dmg`
+
+生成物默认位于：
+
+- macOS 安装包：`qq-pet-macos/dist/`
+- 内置 Python sidecar 中间产物：`.build/electron-backend-dist/`
+
+安装后的 AI 配置与运行时数据会写到：
+
+```text
+~/Library/Application Support/qq-pet-macos/ai-backend/
+```
+
+其中包括：
+
+- `config.yaml`
+- `.env`
+- `data/memory.db`
+- `data/scheduler.db`
+- `data/life_album/`
+
 ### 3. 验证服务状态
 
 ```bash

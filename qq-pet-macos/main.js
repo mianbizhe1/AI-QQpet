@@ -21,8 +21,9 @@ process.on("unhandledRejection", (reason) => {
   } catch (_) {}
 });
 
-const { app } = require("electron");
+const { app, dialog } = require("electron");
 const path = require("path");
+const { ensureBackendStarted, stopBackend, getBackendLogPath } = require("./backend-service");
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -80,5 +81,31 @@ const createWindow = async () => {
 app.commandLine.appendSwitch("disable-site-isolation-trials");
 
 app.whenReady().then(() => {
-  createWindow();
+  ensureBackendStarted()
+    .then((ok) => {
+      if (!ok) {
+        dialog.showErrorBox(
+          "AI 后端启动失败",
+          `内置 Python 服务没有成功启动。\n\n请检查日志：\n${getBackendLogPath()}`
+        );
+      }
+      return ok;
+    })
+    .catch((error) => {
+      console.error("[backend] failed to start", error);
+      try {
+        dialog.showErrorBox(
+          "AI 后端启动失败",
+          `${error?.message || error}\n\n请检查日志：\n${getBackendLogPath()}`
+        );
+      } catch (_) {}
+      return false;
+    })
+    .finally(() => {
+      createWindow();
+    });
+});
+
+app.on("before-quit", () => {
+  stopBackend();
 });

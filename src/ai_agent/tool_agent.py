@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional
 from ai_llm import get_llm_client, Message
 from .vision import QwenVisionAnalyzer
 from .life_album import LifeAlbumStore
+from runtime_paths import life_album_dir
 
 # 导入记忆模块
 try:
@@ -32,9 +33,7 @@ class ToolAgent:
         self.config_path = config_path
         self.llm_client = get_llm_client(config_path)
         self.vision_analyzer = QwenVisionAnalyzer(config_path)
-        self.life_album_store = LifeAlbumStore(
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "life_album")
-        )
+        self.life_album_store = LifeAlbumStore(str(life_album_dir()))
         self.tools = []
         self.max_turns = 3
 
@@ -128,6 +127,59 @@ class ToolAgent:
 
         return self.vision_analyzer.analyze(filepath, "\n".join(prompt_parts))
 
+    def _normalize_pet_status(self, pet_status: Dict[str, Any]) -> Dict[str, Any]:
+        """兼容扁平/嵌套两种宠物状态结构，统一给对话上下文使用。"""
+        info = pet_status.get("info")
+        if isinstance(info, dict):
+            max_info = pet_status.get("max_info") or pet_status.get("maxInfo") or {}
+            return {
+                "name": info.get("name") or pet_status.get("name") or "小Q",
+                "host": info.get("host") or pet_status.get("host") or "",
+                "level": max_info.get("level", pet_status.get("level", 0)),
+                "growth": info.get("growth", pet_status.get("growth", 0)),
+                "hunger": info.get("hunger", pet_status.get("hunger", 0)),
+                "hunger_max": max_info.get("hunger", pet_status.get("hunger_max", 1440)),
+                "clean": info.get("clean", pet_status.get("clean", 0)),
+                "clean_max": max_info.get("clean", pet_status.get("clean_max", 1440)),
+                "health": info.get("health", pet_status.get("health", 0)),
+                "mood": info.get("mood", pet_status.get("mood", 0)),
+                "mood_max": max_info.get("mood", pet_status.get("mood_max", 1440)),
+                "yb": info.get("yb", pet_status.get("yb", 0)),
+                "intel": info.get("intel", pet_status.get("intel", 0)),
+                "charm": info.get("charm", pet_status.get("charm", 0)),
+                "strong": info.get("strong", pet_status.get("strong", 0)),
+                "ill": pet_status.get("ill") or pet_status.get("active_option", {}).get("ill"),
+                "is_hungry": pet_status.get("is_hungry"),
+                "is_dirty": pet_status.get("is_dirty"),
+                "is_sad": pet_status.get("is_sad"),
+                "is_sick": pet_status.get("is_sick"),
+                "is_dead": pet_status.get("is_dead"),
+            }
+
+        return {
+            "name": pet_status.get("name", "小Q"),
+            "host": pet_status.get("host", ""),
+            "level": pet_status.get("level", 0),
+            "growth": pet_status.get("growth", 0),
+            "hunger": pet_status.get("hunger", 0),
+            "hunger_max": pet_status.get("hunger_max", 1440),
+            "clean": pet_status.get("clean", 0),
+            "clean_max": pet_status.get("clean_max", 1440),
+            "health": pet_status.get("health", 0),
+            "mood": pet_status.get("mood", 0),
+            "mood_max": pet_status.get("mood_max", 1440),
+            "yb": pet_status.get("yb", 0),
+            "intel": pet_status.get("intel", 0),
+            "charm": pet_status.get("charm", 0),
+            "strong": pet_status.get("strong", 0),
+            "ill": pet_status.get("ill"),
+            "is_hungry": pet_status.get("is_hungry"),
+            "is_dirty": pet_status.get("is_dirty"),
+            "is_sad": pet_status.get("is_sad"),
+            "is_sick": pet_status.get("is_sick"),
+            "is_dead": pet_status.get("is_dead"),
+        }
+
     def chat(self, user_message: str, context: Dict = None) -> Dict:
         """
         对话接口 - 支持Tool Calling
@@ -152,7 +204,7 @@ class ToolAgent:
 
         # ========== 记忆系统集成 ==========
         # 对话前：召回相关记忆
-        memory_context = ""
+        memory_context_sections = []
         user_id = context.get("user_id", "default")
 
         # 1. 注入 JavaScript 传来的 recent_memory（短期会话记忆）
@@ -164,7 +216,7 @@ class ToolAgent:
                 if content:
                     memory_lines.append(f"- {content[:60]}")
             if len(memory_lines) > 1:
-                memory_context = "\n".join(memory_lines)
+                memory_context_sections.append("\n".join(memory_lines))
 
         if MEMORY_AVAILABLE:
             try:
@@ -188,7 +240,7 @@ class ToolAgent:
                         memory_context_parts.append(f"热点话题: {', '.join(hot_topics[:3])}")
 
                     if memory_context_parts:
-                        memory_context = "\n".join(memory_context_parts)
+                        memory_context_sections.append("\n".join(memory_context_parts))
 
                 # 召回相关记忆
                 recall_context = {
@@ -197,16 +249,17 @@ class ToolAgent:
                 }
                 recalled = memory_api.recall_memories(recall_context, user_id, limit=3)
                 if recalled and recalled.get("memories"):
-                    memory_lines = ["\n【相关记忆】"]
+                    memory_lines = ["【相关记忆】"]
                     for m in recalled["memories"][:3]:
                         mem_content = m.get("memory", {}).get("content", "")
                         if mem_content:
                             memory_lines.append(f"- {mem_content[:50]}")
                     if len(memory_lines) > 1:
-                        memory_context += "\n" + "\n".join(memory_lines)
+                        memory_context_sections.append("\n".join(memory_lines))
             except Exception as e:
                 print(f"[ToolAgent] 记忆召回失败: {e}")
         # ==================================
+        memory_context = "\n".join(section for section in memory_context_sections if section).strip()
 
         if context:
             pet_name = context.get("pet_name", "小Q")
@@ -216,11 +269,30 @@ class ToolAgent:
 
             status_parts = []
             if pet_status:
-                hunger = pet_status.get("info", {}).get("hunger", 0)
-                clean = pet_status.get("info", {}).get("clean", 0)
-                mood = pet_status.get("info", {}).get("mood", 0)
-                health = pet_status.get("info", {}).get("health", 0)
-                status_parts.append(f"饥饿:{hunger}/1440 清洁:{clean}/1440 心情:{mood}/1440 健康:{health}")
+                normalized_status = self._normalize_pet_status(pet_status)
+                pet_name = normalized_status.get("name") or pet_name
+                status_parts.append(
+                    "等级:{level} 成长:{growth} 元宝:{yb} "
+                    "饥饿:{hunger}/{hunger_max} 清洁:{clean}/{clean_max} "
+                    "心情:{mood}/{mood_max} 健康:{health} "
+                    "智力:{intel} 魅力:{charm} 武力:{strong}".format(**normalized_status)
+                )
+                ill = normalized_status.get("ill")
+                if isinstance(ill, dict) and ill.get("name"):
+                    status_parts.append(f"当前疾病:{ill.get('name')}")
+                condition_flags = []
+                if normalized_status.get("is_hungry"):
+                    condition_flags.append("饥饿中")
+                if normalized_status.get("is_dirty"):
+                    condition_flags.append("有点脏")
+                if normalized_status.get("is_sad"):
+                    condition_flags.append("心情低落")
+                if normalized_status.get("is_sick"):
+                    condition_flags.append("生病中")
+                if normalized_status.get("is_dead"):
+                    condition_flags.append("已死亡")
+                if condition_flags:
+                    status_parts.append("状态标签:" + "、".join(condition_flags))
 
             context_info = f"""【当前状态】
 宠物名: {pet_name}
@@ -368,7 +440,7 @@ class ToolAgent:
 
                 # ========== 记忆系统集成 ==========
                 # 对话后：学习本次对话
-                if MEMORY_AVAILABLE and user_message:
+                if MEMORY_AVAILABLE and user_message and context.get("memory_learning_enabled", True):
                     try:
                         memory_api = get_memory_api(self.config_path)
                         user_id = context.get("user_id", "default") if context else "default"
@@ -419,8 +491,11 @@ class ToolAgent:
         artifacts: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         screenshot = artifacts.get("screenshot") or {}
-        filepath = screenshot.get("filepath")
-        if not filepath or not os.path.exists(filepath):
+        filepath = screenshot.get("filepath", "")
+        if filepath and not os.path.exists(filepath):
+            filepath = ""
+
+        if not (user_message or final_response or artifacts.get("vision_summary") or filepath):
             return None
 
         try:

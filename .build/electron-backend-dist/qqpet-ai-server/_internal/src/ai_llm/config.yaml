@@ -1,0 +1,67 @@
+# AI企鹅 LLM 配置文件
+# 请根据你使用的LLM服务填写
+
+# LLM服务配置
+llm:
+  # API地址（OpenAI兼容格式）
+  # 示例：
+  #   - 腾讯混元: https://api.hunyuan.cloud.tencent.com
+  #   - ChatGLM: https://open.bigmodel.cn/api/paas/v4
+  #   - 本地Ollama: http://localhost:11434/v1
+  #   - OpenAI: https://api.openai.com/v1
+  base_url: "https://api.minimaxi.com/v1"
+
+  # API Key（建议使用环境变量 LLM_API_KEY 覆盖）
+  api_key: ""
+
+  # 模型名称
+  # 示例：
+  #   - gpt-4o
+  #   - gpt-3.5-turbo
+  #   - chatglm3-6b
+  #   - hunyuan-large
+  model: "MiniMax-M2.7-highspeed"
+
+  # 请求超时（秒）
+  timeout: 30
+
+  # 最大重试次数
+  max_retries: 3
+
+# 视觉模型配置（用于截图理解）
+vision:
+  enabled: true
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  api_key: ""  # 建议使用环境变量 VISION_API_KEY 覆盖
+  model: "qwen3.6-plus"
+  timeout: 30
+  max_tokens: 300
+
+# AI企鹅性格配置
+personality:
+  # 初始性格值（0-1）
+  warmth: 0.6        # 温暖度
+  humor: 0.5         # 幽默感
+  boldness: 0.4      # 大胆度
+  curiosity: 0.7     # 好奇心
+
+  # 对话风格
+  response_length: "short"  # short / medium / long
+  speak_style: "playful"    # playful / gentle / calm
+
+# 功能开关
+features:
+  # 是否启用LLM（false则使用模板）
+  enabled: true
+
+  # 温度参数（创造性，0-1）
+  temperature: 0.8
+
+  # 最大生成token数
+  max_tokens: 200
+
+  # 是否启用记忆上下文
+  memory_context: true
+
+  # 记忆上下文长度
+  memory_turns: 5

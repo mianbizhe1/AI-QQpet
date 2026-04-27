@@ -59,6 +59,31 @@
     }));
   }
 
+  function getLifeAlbumScenes() {
+    const today = new Date();
+    const period = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    return [
+      {
+        key: "daily-review",
+        name: "今日回顾",
+        icon: "../assets/Background/b0000003.png",
+        type: "album",
+        granularity: "day",
+        period,
+        valueList: {
+          desc: { label: "回顾：", value: "把今天主人和小Q的互动画成回忆相册" },
+          tip: { label: "操作：", value: "点击生成以互动为主的今日漫画回顾" },
+          date: { label: "日期：", value: period },
+        },
+      },
+    ];
+  }
+
   async function generateSceneImage(option = {}, petInfo = {}) {
     const apiKey = getConfiguredApiKey();
     if (!apiKey) {
@@ -197,6 +222,7 @@
       .filter(Boolean)
       .slice(0, 6);
     const important = safeCall(() => memory.getMidTerm(5), [])
+      .concat(safeCall(() => memory.getDerivedHints(3), []))
       .map(formatMemoryItem)
       .filter(Boolean)
       .slice(0, 5);
@@ -383,9 +409,13 @@
 
   function getConfiguredApiKey() {
     // 尝试加载 .env 文件
-    const envPath = path.resolve(__dirname, "../../../../../.env");
+    const envPaths = [
+      path.join(app.getPath("userData"), "ai-backend", ".env"),
+      path.resolve(__dirname, "../../../../../.env"),
+    ];
     try {
-      if (fs.existsSync(envPath)) {
+      for (const envPath of envPaths) {
+        if (!fs.existsSync(envPath)) continue;
         const envContent = fs.readFileSync(envPath, "utf8");
         envContent.split(/\r?\n/).forEach(line => {
           const match = line.match(/^([^=]+)=(.*)$/);
@@ -406,6 +436,7 @@
 
   function readLlmApiKeyFromConfig() {
     const configPaths = [
+      path.join(app.getPath("userData"), "ai-backend", "config.yaml"),
       path.resolve(__dirname, "../../../../../src/ai_llm/config.yaml"),
       path.resolve(__dirname, "../../../../../config.yaml"),
       path.resolve(process.cwd(), "src/ai_llm/config.yaml"),
@@ -464,6 +495,7 @@
 
   module.exports = {
     getTripScenes,
+    getLifeAlbumScenes,
     generateSceneImage,
     generateLifeAlbumImage,
   };

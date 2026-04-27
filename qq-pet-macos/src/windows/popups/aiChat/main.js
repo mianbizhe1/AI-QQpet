@@ -9,6 +9,9 @@ const main = {
     const position = opt.position || [100, 100];
     const x = Math.max(0, Math.trunc(position[0] - this.width / 2));
     const y = Math.max(0, Math.trunc(position[1] - this.height - 20));
+    const dragState = {
+      origin: null,
+    };
 
     windowsMain.open({
       name: this.name,
@@ -71,6 +74,29 @@ const main = {
                   petName: getPetInfoOne("name", "info") || "小企鹅",
                 },
               });
+              return;
+            }
+
+            if (payload.event === "dragStart") {
+              dragState.origin = vm && !vm.isDestroyed()
+                ? vm.getPosition()
+                : null;
+              return;
+            }
+
+            if (payload.event === "dragMove") {
+              if (!dragState.origin || !Array.isArray(payload.delta)) return;
+
+              const [dx = 0, dy = 0] = payload.delta;
+              vm.setPosition(
+                Math.max(0, Math.trunc(dragState.origin[0] - dx)),
+                Math.max(0, Math.trunc(dragState.origin[1] - dy))
+              );
+              return;
+            }
+
+            if (payload.event === "dragEnd") {
+              dragState.origin = null;
               return;
             }
 
